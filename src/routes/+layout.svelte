@@ -103,9 +103,9 @@
 			</aside>
 		</div>
 	{:else}
-		<!-- Reader: no navbar, full viewport -->
-		<div class="flex-1 flex min-h-0 w-full max-w-[1920px] mx-auto overflow-hidden">
-			<main class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+		<!-- Reader: exactly viewport height, no page scroll; TOC and content scroll independently inside -->
+		<div class="h-screen max-h-dvh w-full max-w-[1920px] mx-auto flex flex-col overflow-hidden">
+			<main class="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
 				{@render children()}
 			</main>
 		</div>

@@ -1,9 +1,10 @@
 // place files you want to import through the `$lib` alias in this folder.
 
 export {
-	generateBookId,
+	getBookIdFromContent,
 	listBooks,
 	getBook,
+	getBookArrayBuffer,
 	saveBook,
 	deleteBook,
 	updateBookMetadata,

@@ -48,5 +48,7 @@
 	"reader_font_mono": "Monospace",
 	"reader_spread": "Spread",
 	"reader_spread_single": "Single page",
-	"reader_spread_double": "Two pages"
+	"reader_spread_double": "Two pages",
+	"reader_page_of": "Page {current} of {total}",
+	"reader_jump_to_page": "Jump to page"
 }

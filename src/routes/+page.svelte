@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { listBooks, saveBook, deleteBook, generateBookId, parseEpub } from '$lib';
+	import { listBooks, saveBook, deleteBook, getBook, getBookIdFromContent, updateBookMetadata, parseEpub } from '$lib';
 	import { m } from '$lib/paraglide/messages';
 	import '../app.css';
 
@@ -62,7 +62,17 @@
 		error = null;
 		errorDetail = null;
 		try {
-			const blob = new Blob([await file.arrayBuffer()], { type: 'application/epub+zip' });
+			const arrayBuffer = await file.arrayBuffer();
+			const blob = new Blob([arrayBuffer], { type: 'application/epub+zip' });
+			const id = await getBookIdFromContent(arrayBuffer);
+			const existing = await getBook(id);
+			if (existing) {
+				await updateBookMetadata(id, { lastOpened: Date.now() });
+				await loadBooks();
+				input.value = '';
+				goto(`/reader/${id}`);
+				return;
+			}
 			const parsed = await parseEpub(blob);
 			let coverDataUrl: string | undefined;
 			try {
@@ -70,7 +80,6 @@
 			} catch {
 				coverDataUrl = undefined;
 			}
-			const id = generateBookId();
 			await saveBook({
 				id,
 				blob,
