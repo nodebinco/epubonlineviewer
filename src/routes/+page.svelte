@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { listBooks, saveBook, generateBookId, parseEpub } from '$lib';
+	import { listBooks, saveBook, deleteBook, generateBookId, parseEpub } from '$lib';
 	import { m } from '$lib/paraglide/messages';
 	import '../app.css';
 
@@ -10,16 +10,49 @@
 	let books = $state<BookEntry[]>([]);
 	let uploading = $state(false);
 	let error = $state<string | null>(null);
+	let errorDetail = $state<string | null>(null);
+	let libraryError = $state<string | null>(null);
 	let fileInput: HTMLInputElement;
 
+	function isStorageError(msg: string): boolean {
+		const lower = msg.toLowerCase();
+		return (
+			lower.includes('quota') ||
+			lower.includes('quotaexceeded') ||
+			lower.includes('no_space') ||
+			lower.includes('file_error_no_space') ||
+			lower.includes('connection is closing')
+		);
+	}
+
 	async function loadBooks() {
-		const list = await listBooks();
-		books = list.map((b) => ({ id: b.id, title: b.title || m.book_unknown(), cover: b.cover, lastOpened: b.lastOpened }));
+		libraryError = null;
+		try {
+			const list = await listBooks();
+			books = list.map((b) => ({ id: b.id, title: b.title || m.book_unknown(), cover: b.cover, lastOpened: b.lastOpened }));
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (isStorageError(msg)) {
+				libraryError = m.storage_full_library();
+			}
+			books = [];
+		}
 	}
 
 	onMount(() => {
 		loadBooks();
 	});
+
+	async function removeBook(e: Event, id: string) {
+		e.preventDefault();
+		e.stopPropagation();
+		try {
+			await deleteBook(id);
+			await loadBooks();
+		} catch {
+			error = m.upload_error_storage();
+		}
+	}
 
 	async function onFileChange(e: Event) {
 		const input = e.target as HTMLInputElement;
@@ -27,17 +60,23 @@
 		if (!file || !file.name.toLowerCase().endsWith('.epub')) return;
 		uploading = true;
 		error = null;
+		errorDetail = null;
 		try {
 			const blob = new Blob([await file.arrayBuffer()], { type: 'application/epub+zip' });
 			const parsed = await parseEpub(blob);
-			const coverDataUrl = await parsed.getCoverDataUrl();
+			let coverDataUrl: string | undefined;
+			try {
+				coverDataUrl = (await parsed.getCoverDataUrl()) ?? undefined;
+			} catch {
+				coverDataUrl = undefined;
+			}
 			const id = generateBookId();
 			await saveBook({
 				id,
 				blob,
 				metadata: {
 					title: parsed.metadata.title,
-					cover: coverDataUrl ?? undefined,
+					cover: coverDataUrl,
 					lastOpened: Date.now(),
 					spineLength: parsed.spine.length,
 				},
@@ -47,10 +86,12 @@
 			goto(`/reader/${id}`);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			if (msg.includes('quota') || msg.includes('QuotaExceeded')) {
+			if (isStorageError(msg)) {
 				error = m.upload_error_storage();
 			} else {
 				error = m.upload_error_invalid();
+				errorDetail = msg;
+				console.error('EPUB parse error:', msg);
 			}
 		} finally {
 			uploading = false;
@@ -109,6 +150,9 @@
 			{#if error}
 				<div class="alert alert-error text-sm mt-2">
 					<span>{error}</span>
+					{#if errorDetail}
+						<span class="block mt-1 text-xs opacity-80">{errorDetail}</span>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -117,6 +161,11 @@
 	<!-- Gallery -->
 	<section>
 		<h2 class="text-lg font-semibold mb-4">{m.your_library()}</h2>
+		{#if libraryError}
+			<div class="alert alert-warning text-sm mb-4">
+				<span>{libraryError}</span>
+			</div>
+		{/if}
 		{#if books.length === 0}
 			<div class="card bg-base-100/50 border border-base-300 border-dashed">
 				<div class="card-body items-center justify-center py-12 text-center">
@@ -129,7 +178,7 @@
 		{:else}
 			<ul class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
 				{#each books as book (book.id)}
-					<li>
+					<li class="relative group">
 						<button
 							type="button"
 							class="card card-compact bg-base-100 shadow hover:shadow-md border border-base-300 hover:border-primary/30 w-full h-full text-left transition-all"
@@ -156,6 +205,16 @@
 								</h3>
 								<p class="text-xs text-primary">{m.open_book()}</p>
 							</div>
+						</button>
+						<button
+							type="button"
+							class="absolute top-2 right-2 btn btn-sm btn-ghost btn-circle opacity-0 group-hover:opacity-100 hover:bg-error/20 text-error transition-opacity"
+							title={m.delete_book()}
+							onclick={(e) => removeBook(e, book.id)}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+							</svg>
 						</button>
 					</li>
 				{/each}

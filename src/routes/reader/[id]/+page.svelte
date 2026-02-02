@@ -1,10 +1,18 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
-	import { getBook, updateBookMetadata, parseEpub } from '$lib';
-	import type { EpubParseResult, EpubSpineItem } from '$lib';
+	import { getBook, updateBookMetadata } from '$lib';
 	import { m } from '$lib/paraglide/messages';
+	import ePub from 'epubjs';
 	import '../../../app.css';
+
+	/** epub.js navigation item (from book.loaded.navigation.toc) */
+	interface TocChapter {
+		id?: string;
+		href: string;
+		label: string;
+		subitems?: TocChapter[];
+	}
 
 	const FONT_SIZES = [90, 100, 110, 120, 130, 140, 150] as const;
 	const FONT_FAMILIES = [
@@ -13,91 +21,35 @@
 		{ value: 'monospace', label: () => m.reader_font_mono() },
 	] as const;
 
-	let parsed = $state<EpubParseResult | null>(null);
-	let currentIndex = $state(0);
-	let chapterHtml = $state<string>('');
+	const VIEWER_ID = 'epub-viewer';
+
+	let book = $state<ReturnType<typeof ePub> | null>(null);
+	let rendition = $state<ReturnType<ReturnType<typeof ePub>['renderTo']> | null>(null);
+	let blobUrl = $state<string | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let fullScreen = $state(false);
 	let tocOpen = $state(true);
 	let readerFontSize = $state(100);
 	let readerFontFamily = $state<'serif' | 'sans-serif' | 'monospace'>('serif');
-	let tocLabels = $state<Map<number, string>>(new Map());
+	let toc = $state<TocChapter[]>([]);
 	let spreadMode = $state<'single' | 'double'>('double');
-	let nextChapterHtml = $state<string>('');
+	let atStart = $state(true);
+	let atEnd = $state(false);
+	let title = $state('');
 	let readerContainer: HTMLDivElement;
 	let tocListEl: HTMLUListElement;
+	let currentHref = $state<string | null>(null);
 
-	function resolveRelativePath(baseDir: string, href: string): string {
-		const parts = baseDir ? baseDir.split('/').filter(Boolean) : [];
-		const rel = href.split('#')[0].split('/').filter(Boolean);
-		for (const p of rel) {
-			if (p === '..') parts.pop();
-			else parts.push(p);
-		}
-		return parts.join('/');
-	}
-
-	function wrapWithReaderStyles(
-		html: string,
-		opts: { fontSize: number; fontFamily: string; currentHref: string }
-	): string {
-		const style = `
-<style id="epub-reader-overrides">
-  body { font-family: ${opts.fontFamily}; font-size: ${opts.fontSize}%; line-height: 1.6; }
-  body { max-width: 42em; margin-left: auto; margin-right: auto; padding: 1.5em 1em; box-sizing: border-box; }
-  * { box-sizing: border-box; }
-</style>`;
-		const linkScript =
-			'<script>(function(){document.addEventListener("click",function(e){var a=e.target.closest("a");if(!a)return;var href=a.getAttribute("href");if(!href||href.charAt(0)==="#")return;e.preventDefault();window.parent.postMessage({type:"epub-navigate",href:href},"*")},true)})();<' +
-			'/script>';
-		let out = html;
-		if (out.includes('</head>')) out = out.replace('</head>', style + '\n</head>');
-		else if (out.includes('<body')) out = out.replace('<body', '<body style="font-family:' + opts.fontFamily + ';font-size:' + opts.fontSize + '%;max-width:42em;margin:0 auto;padding:1.5em 1em;"');
-		else out = style + out;
-		if (out.includes('</body>')) out = out.replace('</body>', linkScript + '\n</body>');
-		else out = out + linkScript;
-		return out;
-	}
-
-	async function applyChapterContent() {
-		if (!parsed) return;
-		const raw = await parsed.getChapterHtml(currentIndex);
-		const currentHref = parsed.spine[currentIndex]?.href ?? '';
-		chapterHtml = wrapWithReaderStyles(raw, {
-			fontSize: readerFontSize,
-			fontFamily: readerFontFamily,
-			currentHref,
-		});
-		// Load next chapter for spread view
-		const nextIdx = currentIndex + 1;
-		if (nextIdx < parsed.spine.length) {
-			const nextRaw = await parsed.getChapterHtml(nextIdx);
-			const nextHref = parsed.spine[nextIdx]?.href ?? '';
-			nextChapterHtml = wrapWithReaderStyles(nextRaw, {
-				fontSize: readerFontSize,
-				fontFamily: readerFontFamily,
-				currentHref: nextHref,
-			});
-		} else {
-			nextChapterHtml = '';
-		}
-	}
-
-	function handleEpubNavigate(href: string) {
-		if (!parsed) return;
-		const currentHref = parsed.spine[currentIndex]?.href ?? '';
-		const currentDir = currentHref.includes('/') ? currentHref.replace(/\/[^/]+$/, '/') : '';
-		const pathOnly = href.split('#')[0].trim();
-		if (!pathOnly) return;
-		const resolved = resolveRelativePath(currentDir, pathOnly);
-		for (let i = 0; i < parsed.spine.length; i++) {
-			const itemPath = parsed.spine[i].href.split('#')[0];
-			if (itemPath === resolved || itemPath.endsWith('/' + resolved) || resolved.endsWith('/' + itemPath)) {
-				currentIndex = i;
-				return;
-			}
-		}
+	function isStorageError(msg: string): boolean {
+		const lower = msg.toLowerCase();
+		return (
+			lower.includes('quota') ||
+			lower.includes('quotaexceeded') ||
+			lower.includes('no_space') ||
+			lower.includes('file_error_no_space') ||
+			lower.includes('connection is closing')
+		);
 	}
 
 	$effect(() => {
@@ -107,49 +59,108 @@
 	});
 
 	$effect(() => {
-		if (!parsed || loading) return;
-		currentIndex;
+		if (!rendition) return;
 		readerFontSize;
 		readerFontFamily;
-		void applyChapterContent();
+		rendition.themes.fontSize(readerFontSize + '%');
+		rendition.themes.font(readerFontFamily);
 	});
 
 	async function loadBook(bookId: string) {
 		loading = true;
 		error = null;
-		parsed = null;
-		chapterHtml = '';
-		tocLabels = new Map();
+		// Cleanup previous
+		if (rendition) {
+			rendition.destroy();
+			rendition = null;
+		}
+		if (book) {
+			book.destroy();
+			book = null;
+		}
+		if (blobUrl) {
+			URL.revokeObjectURL(blobUrl);
+			blobUrl = null;
+		}
+		toc = [];
+		atStart = true;
+		atEnd = false;
+		title = '';
+		currentHref = null;
 		try {
 			const record = await getBook(bookId);
 			if (!record) {
 				error = m.reader_error_not_found();
 				return;
 			}
-			parsed = await parseEpub(record.blob);
-			tocLabels = await parsed.getTocLabels();
+			// epub.js: blob URL + openAs 'epub' so it fetches as binary (see Book.determineType)
+			const url = URL.createObjectURL(record.blob);
+			blobUrl = url;
+			const bk = ePub(url, { encoding: 'binary', openAs: 'epub' });
+			book = bk;
 			await updateBookMetadata(bookId, { lastOpened: Date.now() });
-			currentIndex = 0;
+
+			// Wait for Svelte to render the viewer div (we just set book so "else if book" block appears)
+			await tick();
+			const viewerEl = document.getElementById(VIEWER_ID);
+			if (!viewerEl) {
+				error = 'Viewer element not found';
+				return;
+			}
+
+			const opts: Parameters<ReturnType<typeof ePub>['renderTo']>[1] = {
+				width: '100%',
+				height: '100%',
+				flow: 'paginated',
+				spread: spreadMode === 'double' ? 'always' : 'none',
+				minSpreadWidth: 800,
+			};
+			const rend = bk.renderTo(viewerEl, opts);
+			rendition = rend;
+
+			// TOC from epub.js navigation (like spreads example: book.loaded.navigation.then(toc => ...))
+			bk.loaded.navigation.then((nav: { toc?: TocChapter[] } | TocChapter[]) => {
+				toc = Array.isArray(nav) ? nav : (nav?.toc ?? []);
+			});
+
+			bk.loaded.metadata.then((meta: { title?: string }) => {
+				title = meta?.title ?? '';
+			});
+
+			rend.on('relocated', (location: { atStart: boolean; atEnd: boolean; start?: { href?: string } }) => {
+				atStart = location.atStart;
+				atEnd = location.atEnd;
+				currentHref = location.start?.href ?? null;
+			});
+
+			await rend.display();
 		} catch (err) {
-			error = err instanceof Error ? err.message : m.reader_error_not_found();
+			const msg = err instanceof Error ? err.message : String(err);
+			error = isStorageError(msg) ? m.reader_error_storage() : (msg || m.reader_error_not_found());
 		} finally {
 			loading = false;
 		}
 	}
 
-	function goToChapter(index: number) {
-		if (!parsed || index < 0 || index >= parsed.spine.length) return;
-		currentIndex = index;
+	function goToHref(href: string) {
+		if (!rendition) return;
+		rendition.display(href);
 	}
 
 	function goPrev() {
-		if (!parsed || currentIndex <= 0) return;
-		currentIndex -= 1;
+		if (!rendition || atStart) return;
+		const meta = book?.packaging?.metadata;
+		const rtl = meta?.direction === 'rtl';
+		if (rtl) rendition.next();
+		else rendition.prev();
 	}
 
 	function goNext() {
-		if (!parsed || currentIndex >= parsed.spine.length - 1) return;
-		currentIndex += 1;
+		if (!rendition || atEnd) return;
+		const meta = book?.packaging?.metadata;
+		const rtl = meta?.direction === 'rtl';
+		if (rtl) rendition.prev();
+		else rendition.next();
 	}
 
 	function toggleFullScreen() {
@@ -168,7 +179,6 @@
 	}
 
 	function onKeydown(e: KeyboardEvent) {
-		if (!parsed) return;
 		const target = e.target as HTMLElement;
 		if (target.closest('input, textarea, [contenteditable="true"]')) return;
 		if (target.closest('details[open]')) return;
@@ -181,42 +191,49 @@
 		}
 	}
 
-	function onMessage(e: MessageEvent) {
-		if (e.data?.type === 'epub-navigate' && typeof e.data.href === 'string') {
-			handleEpubNavigate(e.data.href);
+	function setSpreadMode(mode: 'single' | 'double') {
+		spreadMode = mode;
+		if (rendition) {
+			rendition.spread(mode === 'double' ? 'always' : 'none', 800);
 		}
 	}
+
+	// Flatten TOC for simple list (epub.js nav can have subitems)
+	function flattenToc(items: TocChapter[]): TocChapter[] {
+		const out: TocChapter[] = [];
+		function add(items: TocChapter[]) {
+			for (const ch of items) {
+				out.push(ch);
+				if (ch.subitems && ch.subitems.length) add(ch.subitems);
+			}
+		}
+		add(items);
+		return out;
+	}
+
+	const canPrev = $derived(!!rendition && !atStart);
+	const canNext = $derived(!!rendition && !atEnd);
+	const flatToc = $derived(flattenToc(toc));
+
+	// Scroll active TOC item into view
+	$effect(() => {
+		if (!tocListEl || !currentHref) return;
+		const btn = Array.from(tocListEl.querySelectorAll<HTMLElement>('[data-href]')).find(
+			(el) => el.getAttribute('data-href') === currentHref
+		);
+		if (btn) btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	});
 
 	onMount(() => {
 		document.addEventListener('fullscreenchange', onFullScreenChange);
 		document.addEventListener('keydown', onKeydown);
-		window.addEventListener('message', onMessage);
 		return () => {
 			document.removeEventListener('fullscreenchange', onFullScreenChange);
 			document.removeEventListener('keydown', onKeydown);
-			window.removeEventListener('message', onMessage);
+			if (rendition) rendition.destroy();
+			if (book) book.destroy();
+			if (blobUrl) URL.revokeObjectURL(blobUrl);
 		};
-	});
-
-	// Chapter label: TOC title from nav doc, else fallback to id or "Chapter N"
-	function chapterLabel(item: EpubSpineItem, index: number): string {
-		const fromToc = tocLabels.get(index);
-		if (fromToc) return fromToc;
-		const id = item.id || '';
-		if (id) return id.replace(/-/g, ' ').replace(/^chapter\s*/i, 'Ch. ');
-		return `Chapter ${index + 1}`;
-	}
-
-	const title = $derived(parsed?.metadata.title ?? '');
-	const canPrev = $derived(!!parsed && currentIndex > 0);
-	const canNext = $derived(!!parsed && parsed.spine.length > 0 && currentIndex < parsed.spine.length - 1);
-
-	// Scroll active TOC item into view when chapter changes
-	$effect(() => {
-		if (!tocListEl || !parsed) return;
-		currentIndex;
-		const active = tocListEl.querySelector('[data-toc-index="' + currentIndex + '"]');
-		if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 	});
 </script>
 
@@ -239,8 +256,8 @@
 				<a href="/" class="btn btn-primary mt-4">{m.back_to_library()}</a>
 			</div>
 		</div>
-	{:else if parsed}
-		<!-- Toolbar: epubreader-js style grid (menu-1 left | menu-2 right) -->
+	{:else if book}
+		<!-- Toolbar: fixed height like epubreader-js (58px) -->
 		<nav
 			class="reader-toolbar grid grid-cols-[1fr_1fr] items-center gap-2 h-14 px-2 md:px-3 bg-base-200 border-b border-base-300 shrink-0"
 			aria-label="Reader toolbar"
@@ -265,26 +282,24 @@
 				<button type="button" class="btn btn-sm btn-ghost" disabled={!canPrev} onclick={goPrev} title={m.reader_prev()}>
 					{m.reader_prev()}
 				</button>
-				<span class="text-sm opacity-70 tabular-nums min-w-[3rem] text-center">{currentIndex + 1} / {parsed.spine.length}</span>
 				<button type="button" class="btn btn-sm btn-ghost" disabled={!canNext} onclick={goNext} title={m.reader_next()}>
 					{m.reader_next()}
 				</button>
 			</div>
 			<div class="menu-2 flex items-center justify-end gap-1 min-w-0">
-				<!-- Spread: single / two pages -->
 				<div class="dropdown dropdown-end hidden sm:block">
-					<label tabindex="0" class="btn btn-sm btn-ghost gap-1" title={m.reader_spread()}>
-						<span class="text-sm">{m.reader_spread()}</span>
+					<label tabindex="0" class="btn btn-sm btn-ghost gap-1" title="Spread">
+						<span class="text-sm">Spread</span>
 					</label>
 					<ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-50 mt-1 w-40 p-2 shadow border border-base-300">
 						<li>
-							<button type="button" class="text-sm {spreadMode === 'single' ? 'active' : ''}" onclick={() => (spreadMode = 'single')}>
-								{m.reader_spread_single()}
+							<button type="button" class="text-sm {spreadMode === 'single' ? 'active' : ''}" onclick={() => setSpreadMode('single')}>
+								Single page
 							</button>
 						</li>
 						<li>
-							<button type="button" class="text-sm {spreadMode === 'double' ? 'active' : ''}" onclick={() => (spreadMode = 'double')}>
-								{m.reader_spread_double()}
+							<button type="button" class="text-sm {spreadMode === 'double' ? 'active' : ''}" onclick={() => setSpreadMode('double')}>
+								Two pages
 							</button>
 						</li>
 					</ul>
@@ -317,7 +332,7 @@
 			</div>
 		</nav>
 
-		<!-- TOC (left) + content (right) -->
+		<!-- TOC (left) + viewer (right) - epub.js style -->
 		<div class="flex-1 flex min-h-0 overflow-hidden">
 			<aside
 				class="shrink-0 w-64 bg-base-200 border-r border-base-300 flex flex-col overflow-hidden {tocOpen ? 'flex' : 'hidden lg:flex'}"
@@ -325,16 +340,16 @@
 			>
 				<div class="shrink-0 p-3 border-b border-base-300 font-semibold text-sm">{m.reader_toc()}</div>
 				<nav class="flex-1 overflow-y-auto overscroll-contain p-2" aria-label={m.reader_toc()}>
-					<ul class="menu menu-sm gap-0.5 p-0" bind:this={tocListEl}>
-						{#each parsed.spine as item, index (item.id + String(index))}
+					<ul class="menu menu-sm gap-0.5 p-0 w-full" bind:this={tocListEl}>
+						{#each flatToc as chapter (chapter.id + chapter.href)}
 							<li class="w-full">
 								<button
 									type="button"
-									data-toc-index={index}
-									class="w-full text-left text-sm py-2 px-3 rounded-md {currentIndex === index ? 'btn-active bg-primary/15 text-primary font-medium' : 'hover:bg-base-300'}"
-									onclick={() => goToChapter(index)}
+									data-href={chapter.href}
+									class="w-full text-left text-sm py-2 px-3 rounded-md {currentHref === chapter.href ? 'btn-active bg-primary/15 text-primary font-medium' : 'hover:bg-base-300'}"
+									onclick={() => goToHref(chapter.href)}
 								>
-									{chapterLabel(item, index)}
+									{chapter.label}
 								</button>
 							</li>
 						{/each}
@@ -342,10 +357,9 @@
 				</nav>
 			</aside>
 
-			<!-- Content: epubreader-js style = prev (arrow) | viewer | next (arrow) -->
+			<!-- Content: prev | viewer (epub.js renders here) | next -->
 			<div bind:this={readerContainer} class="reader-content flex-1 min-w-0 flex flex-col bg-base-100 overflow-hidden">
 				<div class="flex-1 min-h-0 flex items-stretch overflow-hidden">
-					<!-- Prev arrow (large <) -->
 					<button
 						type="button"
 						class="reader-arrow prev flex-shrink-0 flex items-center justify-start px-2 md:px-4 min-w-[48px] {!canPrev ? 'opacity-30 pointer-events-none' : 'hover:bg-base-200'} transition-colors"
@@ -356,38 +370,10 @@
 						<span class="text-4xl md:text-5xl lg:text-6xl font-bold text-base-content/40 hover:text-base-content/70 select-none" aria-hidden="true">&lt;</span>
 					</button>
 
-					<!-- Viewer: single or spread (two panels) -->
-					<div class="viewer-container flex-1 min-w-0 flex items-stretch overflow-hidden {spreadMode === 'double' && nextChapterHtml ? 'reader-spread' : ''}">
-						<div class="viewer-panel flex-1 min-w-0 overflow-auto flex justify-center bg-base-100">
-							<div class="w-full max-w-3xl min-h-full">
-								{#key currentIndex}
-									<iframe
-										title="Chapter content"
-										sandbox="allow-same-origin allow-scripts"
-										class="w-full min-h-full border-0 block"
-										style="height: 100%; min-height: 60vh;"
-										srcdoc={chapterHtml}
-									></iframe>
-								{/key}
-							</div>
-						</div>
-						{#if spreadMode === 'double' && nextChapterHtml}
-							<div class="reader-spread-divider hidden min-[800px]:block w-px flex-shrink-0 bg-base-300 border-l border-dashed" aria-hidden="true"></div>
-							<div class="viewer-panel right flex-1 min-w-0 overflow-auto hidden min-[800px]:flex justify-center bg-base-100">
-								<div class="w-full max-w-3xl min-h-full">
-									<iframe
-										title="Next chapter"
-										sandbox="allow-same-origin allow-scripts"
-										class="w-full min-h-full border-0 block"
-										style="height: 100%; min-height: 60vh;"
-										srcdoc={nextChapterHtml}
-									></iframe>
-								</div>
-							</div>
-						{/if}
+					<div class="viewer-container flex-1 min-w-0 overflow-hidden flex items-center justify-center bg-base-100">
+						<div id={VIEWER_ID} class="w-full h-full min-h-0"></div>
 					</div>
 
-					<!-- Next arrow (large >) -->
 					<button
 						type="button"
 						class="reader-arrow next flex-shrink-0 flex items-center justify-end px-2 md:px-4 min-w-[48px] {!canNext ? 'opacity-30 pointer-events-none' : 'hover:bg-base-200'} transition-colors"

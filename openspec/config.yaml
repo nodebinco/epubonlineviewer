@@ -4,7 +4,7 @@ schema: spec-driven
 # This is shown to AI when creating artifacts.
 context: |
   Project: epubonlineviewer.com — read EPUB ebooks in the browser. Upload once, read anytime.
-  Tech stack: SvelteKit, TypeScript, DaisyUI, Paraglide (Inlang) for i18n, Cloudflare Pages.
+  Tech stack: SvelteKit, bun, TypeScript, DaisyUI, Paraglide (Inlang) for i18n, Cloudflare Pages.
   Conventions: kebab-case for file names, route segments, and public identifiers.
   Storage: EPUBs stored only in the browser (IndexedDB). No server-side book storage.
   i18n: All user-facing strings via Paraglide; target ~50 main languages; translate all pages.

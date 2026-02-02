@@ -28,28 +28,49 @@ export interface EpubParseResult {
 const CONTAINER_PATH = 'META-INF/container.xml';
 const MIMETYPE = 'application/epub+zip';
 
+/** Find a file in the zip by path, case-insensitive (some EPUBs use meta-inf vs META-INF). */
+function findZipFile(zip: JSZip, path: string): JSZip.JSZipObject | null {
+	const normalized = path.replace(/\\/g, '/');
+	const lower = normalized.toLowerCase();
+	for (const [name, entry] of Object.entries(zip.files)) {
+		if (entry.dir) continue;
+		if (name.replace(/\\/g, '/').toLowerCase() === lower) return entry;
+	}
+	return zip.file(normalized) ?? null;
+}
+
 /**
  * Parse an EPUB blob: extract metadata, spine, and provide chapter content.
  * Uses JSZip; OPF/NCX parsing is minimal (enough for title, spine, cover).
  */
 export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
-	const zip = await JSZip.loadAsync(blob);
+	let zip: JSZip;
+	try {
+		zip = await JSZip.loadAsync(blob);
+	} catch (e) {
+		throw new Error('Invalid EPUB: file is not a valid ZIP archive.');
+	}
 
-	// Find rootfile from container.xml
-	const containerXml = await zip.file(CONTAINER_PATH)?.async('string');
+	// Find rootfile from container.xml (try exact path then case-insensitive)
+	const containerEntry = zip.file(CONTAINER_PATH) ?? findZipFile(zip, CONTAINER_PATH);
+	const containerXml = containerEntry ? await containerEntry.async('string') : null;
 	if (!containerXml) throw new Error('Invalid EPUB: missing container.xml');
 
-	const rootfileMatch = containerXml.match(/full-path="([^"]+)"/);
+	// full-path can use single or double quotes, and may have namespace
+	const rootfileMatch = containerXml.match(/full-path\s*=\s*["']([^"']+)["']/i);
 	if (!rootfileMatch) throw new Error('Invalid EPUB: no rootfile in container');
-	const opfPath = rootfileMatch[1];
+	let opfPath = rootfileMatch[1].replace(/\\/g, '/').trim();
+	opfPath = decodeURIComponent(opfPath);
 	const opfDir = opfPath.includes('/') ? opfPath.replace(/\/[^/]+$/, '/') : '';
 
-	const opfXml = await zip.file(opfPath)?.async('string');
-	if (!opfXml) throw new Error('Invalid EPUB: missing OPF');
+	const opfEntry = zip.file(opfPath) ?? findZipFile(zip, opfPath);
+	const opfXml = opfEntry ? await opfEntry.async('string') : null;
+	if (!opfXml) throw new Error('Invalid EPUB: missing OPF (' + opfPath + ')');
 
 	// Parse metadata and spine from OPF (simplified; no full OPF namespace handling)
 	const metadata = parseOpfMetadata(opfXml);
 	const { spine, manifest } = parseOpfSpineAndManifest(opfXml);
+	if (spine.length === 0) throw new Error('Invalid EPUB: no spine items in OPF.');
 	const coverHref = parseOpfCover(opfXml, manifest);
 
 	async function resolvePath(href: string): Promise<string> {
@@ -80,7 +101,7 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 		const item = spine[index];
 		if (!item) throw new Error('Chapter index out of range');
 		const fullPath = (await resolvePath(item.href)).replace(/\\/g, '/');
-		const file = zip.file(fullPath);
+		const file = zip.file(fullPath) ?? findZipFile(zip, fullPath);
 		if (!file) throw new Error(`EPUB missing file: ${fullPath}`);
 		let html = await file.async('string');
 		const chapterDir = fullPath.includes('/') ? fullPath.replace(/\/[^/]+$/, '/') : '';
@@ -103,8 +124,8 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 			const src = m[2].trim();
 			if (src.startsWith('data:') || srcToDataUrl.has(src)) continue;
 			uniqueSrcs.push(src);
-			const resolvedPath = resolveRel(chapterDir, src.split('#')[0]);
-			const imgFile = zip.file(resolvedPath);
+			const resolvedPath = resolveRel(chapterDir, src.split('#')[0]).replace(/\\/g, '/');
+			const imgFile = zip.file(resolvedPath) ?? findZipFile(zip, resolvedPath);
 			if (!imgFile) continue;
 			const blob = await imgFile.async('blob');
 			const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -126,8 +147,8 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 	async function getChapterBlobUrl(index: number): Promise<string | null> {
 		const item = spine[index];
 		if (!item) return null;
-		const fullPath = await resolvePath(item.href);
-		const file = zip.file(fullPath);
+		const fullPath = (await resolvePath(item.href)).replace(/\\/g, '/');
+		const file = zip.file(fullPath) ?? findZipFile(zip, fullPath);
 		if (!file) return null;
 		const blob = await file.async('blob');
 		return URL.createObjectURL(blob);
@@ -138,7 +159,7 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 	async function getCoverDataUrl(): Promise<string | null> {
 		// Try OPF-declared cover first
 		if (resolvedCoverHref) {
-			const file = zip.file(resolvedCoverHref);
+			const file = zip.file(resolvedCoverHref) ?? findZipFile(zip, resolvedCoverHref);
 			if (file) {
 				const blob = await file.async('blob');
 				return new Promise((resolve, reject) => {
@@ -152,8 +173,8 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 		// Fallback: first spine item may be cover XHTML with <img src="...">
 		const firstItem = spine[0];
 		if (!firstItem) return null;
-		const firstPath = await resolvePath(firstItem.href);
-		const firstFile = zip.file(firstPath);
+		const firstPath = (await resolvePath(firstItem.href)).replace(/\\/g, '/');
+		const firstFile = zip.file(firstPath) ?? findZipFile(zip, firstPath);
 		if (!firstFile) return null;
 		const html = await firstFile.async('string');
 		const imgMatch = html.match(/<img[^>]+src=["']([^"']+)["']/i);
@@ -161,8 +182,8 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 		const imgSrc = imgMatch[1].trim();
 		// Resolve image path relative to the HTML file's directory
 		const firstDir = firstPath.includes('/') ? firstPath.replace(/\/[^/]+$/, '/') : '';
-		const imgPath = resolveRelativePath(firstDir, imgSrc);
-		const imgFile = zip.file(imgPath);
+		const imgPath = resolveRelativePath(firstDir, imgSrc).replace(/\\/g, '/');
+		const imgFile = zip.file(imgPath) ?? findZipFile(zip, imgPath);
 		if (!imgFile) return null;
 		const blob = await imgFile.async('blob');
 		return new Promise((resolve, reject) => {
@@ -186,7 +207,7 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 		if (!navHref) return labels;
 		const navPath = (await resolvePath(navHref)).replace(/\\/g, '/');
 		const navDir = navPath.includes('/') ? navPath.replace(/\/[^/]+$/, '/') : '';
-		const navFile = zip.file(navPath);
+		const navFile = zip.file(navPath) ?? findZipFile(zip, navPath);
 		if (!navFile) return labels;
 		const navHtml = await navFile.async('string');
 		// Find nav epub:type="toc" and collect <a href="...">text</a> (flat list)
@@ -244,6 +265,14 @@ interface ManifestItem {
 	properties?: string;
 }
 
+/** Match attribute value with double or single quotes. */
+function attr(attrs: string, name: string): string | undefined {
+	const d = attrs.match(new RegExp(name + '\\s*=\\s*"([^"]*)"', 'i'));
+	if (d) return d[1];
+	const s = attrs.match(new RegExp(name + "\\s*=\\s*'([^']*)'", 'i'));
+	return s?.[1];
+}
+
 function parseOpfSpineAndManifest(opf: string): {
 	spine: EpubSpineItem[];
 	manifest: Map<string, ManifestItem>;
@@ -253,20 +282,24 @@ function parseOpfSpineAndManifest(opf: string): {
 	let m: RegExpExecArray | null;
 	while ((m = itemRegex.exec(opf)) !== null) {
 		const attrs = m[1];
-		const id = attrs.match(/id="([^"]+)"/)?.[1];
-		const href = attrs.match(/href="([^"]+)"/)?.[1];
-		const mt = attrs.match(/media-type="([^"]+)"/)?.[1];
-		const props = attrs.match(/properties="([^"]*)"/)?.[1];
-		if (id && href) manifest.set(id, { id, href, 'media-type': mt || '', properties: props });
+		const id = attr(attrs, 'id');
+		const href = attr(attrs, 'href');
+		const mt = attr(attrs, 'media-type') ?? '';
+		const props = attr(attrs, 'properties');
+		if (id && href) manifest.set(id, { id, href, 'media-type': mt, properties: props });
 	}
 
 	const spine: EpubSpineItem[] = [];
-	const spineRegex = /<itemref\s+idref="([^"]+)"(?:\s+linear="(no|yes)")?\s*\/?>/gi;
+	const spineRegex = /<itemref\s+([^>]+)\s*\/?>/gi;
 	while ((m = spineRegex.exec(opf)) !== null) {
-		const idref = m[1];
-		const linear = m[2] === 'no' ? false : true;
-		const item = manifest.get(idref);
-		if (item) spine.push({ id: item.id, href: item.href, linear });
+		const attrs = m[1];
+		const idref = attr(attrs, 'idref');
+		const linearStr = attr(attrs, 'linear');
+		const linear = linearStr === 'no' ? false : true;
+		if (idref) {
+			const item = manifest.get(idref);
+			if (item) spine.push({ id: item.id, href: item.href, linear });
+		}
 	}
 
 	return { spine, manifest };
