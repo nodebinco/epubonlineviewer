@@ -1,0 +1,26 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+context: |
+  Project: epubonlineviewer.com — read EPUB ebooks in the browser. Upload once, read anytime.
+  Tech stack: SvelteKit, TypeScript, DaisyUI, Paraglide (Inlang) for i18n, Cloudflare Pages.
+  Conventions: kebab-case for file names, route segments, and public identifiers.
+  Storage: EPUBs stored only in the browser (IndexedDB). No server-side book storage.
+  i18n: All user-facing strings via Paraglide; target ~50 main languages; translate all pages.
+  Supporting pages: getting-started, what-is-epub, supported-formats, keyboard-shortcuts, faq.
+  Legal pages: about-us, contact-us, privacy-policy, terms-of-use.
+  See README.md and AGENTS.md for full context.
+
+# Per-artifact rules (optional)
+rules:
+  proposal:
+    - Keep proposals concise (1–2 pages). Focus on why, not how.
+    - Capabilities section must use kebab-case names; each becomes a spec.
+  design:
+    - Align with existing routes under src/routes/ and shared code in src/lib/.
+    - IndexedDB and EPUB parsing belong in src/lib/; no server-side book storage.
+  specs:
+    - Requirement-level only; no implementation details. Use kebab-case spec names.
+  tasks:
+    - Prefer small, testable chunks. Reference lib/ and route paths explicitly.
