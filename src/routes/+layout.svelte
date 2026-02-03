@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
 	import { locales, localizeHref, type Locale } from '$lib/paraglide/runtime';
 	import { m } from '$lib/paraglide/messages';
+	import { initTheme, themeStore, setTheme } from '$lib/theme-store';
 	import favicon from '$lib/assets/favicon.svg';
 	import logo from '$lib/assets/logo.svg';
 	import './layout.css';
@@ -17,18 +19,23 @@
 			? ((document.documentElement.getAttribute('lang') as Locale) ?? 'en')
 			: undefined
 	);
+
+	onMount(() => {
+		initTheme();
+	});
 </script>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<!-- On reader route: full viewport (no site navbar). Else: normal layout with navbar. -->
-<div class="min-h-screen flex flex-col bg-base-200">
+<!-- Same max-w and padding as reader; theme colors follow reader (light/dark). -->
+<div class="min-h-screen flex flex-col bg-base-100">
 	{#if !page.url.pathname.startsWith('/reader')}
-		<!-- Navbar (hidden on reader) -->
-		<header class="navbar bg-base-100 shadow-sm sticky top-0 z-50 shrink-0">
-			<div class="navbar-start gap-2">
+		<!-- Navbar: same max-w + margin as reader toolbar, same colors (bg-base-200, border) -->
+		<header class="navbar bg-base-200 border-b border-base-300 sticky top-0 z-50 shrink-0">
+			<div class="w-full max-w-[1920px] mx-auto px-2 md:px-3 flex items-center justify-between gap-2">
+			<div class="navbar-start gap-2 min-w-0">
 				<details class="dropdown lg:hidden" bind:open={navOpen}>
 					<summary class="btn btn-ghost btn-square">
 						<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -75,6 +82,19 @@
 				</ul>
 			</div>
 			<div class="navbar-end gap-1">
+				<button
+					type="button"
+					class="btn btn-ghost btn-sm btn-square"
+					title={$themeStore === 'dark' ? 'Light' : 'Dark'}
+					aria-label={$themeStore === 'dark' ? 'Light' : 'Dark'}
+					onclick={() => setTheme($themeStore === 'dark' ? 'light' : 'dark')}
+				>
+					{#if $themeStore === 'dark'}
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+					{:else}
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+					{/if}
+				</button>
 				<div class="dropdown dropdown-end">
 					<label tabindex="0" class="btn btn-ghost btn-sm btn-square" title="Language">
 						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -90,17 +110,13 @@
 					</ul>
 				</div>
 			</div>
+			</div>
 		</header>
-		<!-- Main + ad slot -->
-		<div class="flex-1 flex min-h-0 w-full max-w-[1920px] mx-auto overflow-hidden">
+		<!-- Main: same max-w + padding as reader; no aside bar on the right -->
+		<div class="flex-1 flex min-h-0 w-full max-w-[1920px] mx-auto px-2 md:px-3 overflow-hidden">
 			<main class="flex-1 min-w-0 min-h-0 flex flex-col pt-14 md:pt-16">
 				{@render children()}
 			</main>
-			<aside class="hidden xl:block w-[160px] xl:w-[200px] shrink-0 bg-base-200/50 border-l border-base-300" aria-hidden="true">
-				<div class="sticky top-16 p-2 text-center text-base-content/40 text-xs min-h-[200px]">
-					<!-- Ad slot placeholder -->
-				</div>
-			</aside>
 		</div>
 	{:else}
 		<!-- Reader: exactly viewport height, no page scroll; TOC and content scroll independently inside -->

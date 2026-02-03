@@ -1,2 +1,55 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+/* Site theme: follow reader palette so navbar, pages and reader look the same */
+
+/* Light: reader-style cream (easy on eyes) */
+[data-theme='light'] {
+	color-scheme: light;
+	--color-base-100: #faf8f5;
+	--color-base-200: #f0ede8;
+	--color-base-300: #e6e2dc;
+	--color-base-content: #1a1a1a;
+}
+
+/* Dark: reader-style black/gray */
+[data-theme='dark'] {
+	color-scheme: dark;
+	--color-base-100: #1a1a1a;
+	--color-base-200: #0d0d0d;
+	--color-base-300: #262626;
+	--color-base-content: #e6edf3;
+	--color-primary: #3b82f6;
+	--color-primary-content: #e6edf3;
+	--color-secondary: #262626;
+	--color-secondary-content: #e6edf3;
+	--color-accent: #262626;
+	--color-accent-content: #e6edf3;
+	--color-neutral: #262626;
+	--color-neutral-content: #e6edf3;
+}
+
+/* Reader theme: light (easy on eyes) and dark mode */
+.reader-theme-light,
+.reader-theme-bg-light {
+	background-color: #faf8f5;
+}
+.reader-theme-dark,
+.reader-theme-bg-dark {
+	background-color: #1a1a1a;
+}
+.reader-theme-dark .reader-arrow span {
+	color: rgba(230, 237, 243, 0.5);
+}
+.reader-theme-dark .reader-arrow:hover span {
+	color: rgba(230, 237, 243, 0.85);
+}
+.reader-restoring-overlay-light {
+	background-color: rgba(250, 248, 245, 0.92);
+}
+.reader-restoring-overlay-dark {
+	background-color: rgba(26, 26, 26, 0.92);
+}
+.reader-restoring-overlay-dark p {
+	color: #e6edf3;
+}

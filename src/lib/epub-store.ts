@@ -2,6 +2,8 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'epub-online-viewer';
 const STORE_BOOKS = 'books';
+const STORE_SETTINGS = 'settings';
+const DB_VERSION = 2;
 
 export interface EpubBookMetadata {
 	title: string;
@@ -9,6 +11,8 @@ export interface EpubBookMetadata {
 	lastOpened?: number; // timestamp
 	/** Reading position: 0–1 percentage (for continue-from-last). */
 	lastPosition?: number;
+	/** CFI string for fast restore without generating locations. */
+	lastCfi?: string;
 	spineLength?: number;
 }
 
@@ -18,11 +22,20 @@ export interface EpubBookRecord {
 	metadata: EpubBookMetadata;
 }
 
+interface SettingsRecord {
+	key: string;
+	value: string;
+}
+
 interface EpubDBSchema extends DBSchema {
 	[STORE_BOOKS]: {
 		key: string;
 		value: EpubBookRecord;
 		indexes: { 'by-last-opened': number };
+	};
+	[STORE_SETTINGS]: {
+		key: string;
+		value: SettingsRecord;
 	};
 }
 
@@ -30,14 +43,32 @@ let dbPromise: Promise<IDBPDatabase<EpubDBSchema>> | null = null;
 
 function getDB(): Promise<IDBPDatabase<EpubDBSchema>> {
 	if (!dbPromise) {
-		dbPromise = openDB<EpubDBSchema>(DB_NAME, 1, {
+		dbPromise = openDB<EpubDBSchema>(DB_NAME, DB_VERSION, {
 			upgrade(db) {
-				const store = db.createObjectStore(STORE_BOOKS, { keyPath: 'id' });
-				store.createIndex('by-last-opened', 'metadata.lastOpened');
+				if (!db.objectStoreNames.contains(STORE_BOOKS)) {
+					const bookStore = db.createObjectStore(STORE_BOOKS, { keyPath: 'id' });
+					bookStore.createIndex('by-last-opened', 'metadata.lastOpened');
+				}
+				if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+					db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
+				}
 			},
 		});
 	}
 	return dbPromise;
+}
+
+/** Get a setting value by key. Returns undefined if not set. */
+export async function getSetting(key: string): Promise<string | undefined> {
+	const db = await getDB();
+	const row = await db.get(STORE_SETTINGS, key);
+	return row?.value;
+}
+
+/** Set a setting value. */
+export async function setSetting(key: string, value: string): Promise<void> {
+	const db = await getDB();
+	await db.put(STORE_SETTINGS, { key, value });
 }
 
 /** Hash book content (SHA-256) to get a stable id. Same file => same id. */

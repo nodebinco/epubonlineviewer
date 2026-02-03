@@ -18,3 +18,5 @@ export {
 	type EpubSpineItem,
 	type EpubParseResult,
 } from './epub-parser.js';
+
+export { themeStore, setTheme, initTheme, type Theme } from './theme-store.js';

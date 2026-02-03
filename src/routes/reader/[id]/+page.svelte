@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { getBookArrayBuffer, updateBookMetadata } from '$lib';
 	import { m } from '$lib/paraglide/messages';
+	import { themeStore, setTheme } from '$lib/theme-store';
 	import ePub from 'epubjs';
 	import '../../../app.css';
 
@@ -14,17 +15,22 @@
 	}
 
 	const FONT_SIZES = [90, 100, 110, 120, 130, 140, 150] as const;
-	const FONT_FAMILIES = [
+	const FONT_FAMILIES: { value: string; label: () => string }[] = [
 		{ value: 'serif', label: () => m.reader_font_serif() },
 		{ value: 'sans-serif', label: () => m.reader_font_sans() },
 		{ value: 'monospace', label: () => m.reader_font_mono() },
-	] as const;
+	];
+	const THEME_STYLES: Record<'light' | 'dark', { body: { background: string; color: string } }> = {
+		light: { body: { background: '#faf8f5', color: '#1a1a1a' } },
+		dark: { body: { background: '#1a1a1a', color: '#e6edf3' } },
+	};
+	type ContentWithDoc = { addStylesheetCss?: (css: string, key: string) => boolean };
 
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let bookData = $state<ArrayBuffer | null>(null);
-	/** Metadata from last load (for lastPosition restore). */
-	let loadedMetadata = $state<{ lastPosition?: number } | null>(null);
+	/** Metadata from last load (for lastPosition/lastCfi restore). */
+	let loadedMetadata = $state<{ lastPosition?: number; lastCfi?: string } | null>(null);
 	let book = $state<ReturnType<typeof ePub> | null>(null);
 	let rendition = $state<ReturnType<ReturnType<typeof ePub>['renderTo']> | null>(null);
 	let viewerEl = $state<HTMLDivElement | null>(null);
@@ -43,8 +49,10 @@
 	/** True while generating locations and restoring saved position (show loading overlay) */
 	let restoringPosition = $state(false);
 	let readerFontSize = $state(100);
-	let readerFontFamily = $state<'serif' | 'sans-serif' | 'monospace'>('serif');
+	let readerFontFamily = $state('serif');
 	let spreadMode = $state<'single' | 'double'>('double');
+
+	const readerTheme = $derived($themeStore);
 	let fullScreen = $state(false);
 	let readerContainer = $state<HTMLDivElement | null>(null);
 	let tocListEl = $state<HTMLUListElement | null>(null);
@@ -86,7 +94,9 @@
 				return;
 			}
 			bookData = data.arrayBuffer;
-			loadedMetadata = data.metadata ? { lastPosition: data.metadata.lastPosition } : null;
+			loadedMetadata = data.metadata
+				? { lastPosition: data.metadata.lastPosition, lastCfi: data.metadata.lastCfi }
+				: null;
 			await updateBookMetadata(id, { lastOpened: Date.now() });
 		}
 		loadBook()
@@ -117,12 +127,15 @@
 		};
 	});
 
-	// 2) When bookData and viewerEl are both set, create epub.js and render (effect re-runs when viewerEl is bound)
+	// 2) When bookData and viewerEl are both set and loading is done, create epub.js and render (so loadedMetadata is ready for restore)
 	let initRafId = 0;
 	$effect(() => {
 		const buf = bookData;
 		const el = viewerEl;
+		const meta = loadedMetadata;
+		const doneLoading = !loading;
 		if (!buf || !el || rendition) return;
+		if (!doneLoading) return;
 		if (!document.contains(el)) return;
 		// Defer one frame so the container is laid out
 		initRafId = requestAnimationFrame(() => {
@@ -156,7 +169,7 @@
 			});
 			let savePositionTimer: ReturnType<typeof setTimeout> | null = null;
 			const SAVE_POSITION_MS = 1500;
-			rend.on('relocated', (loc: { atStart: boolean; atEnd: boolean; start?: { href?: string; percentage?: number; displayed?: { page?: number; total?: number } } }) => {
+			rend.on('relocated', (loc: { atStart: boolean; atEnd: boolean; start?: { href?: string; percentage?: number; cfi?: string; displayed?: { page?: number; total?: number } } }) => {
 				atStart = loc.atStart;
 				atEnd = loc.atEnd;
 				currentHref = loc.start?.href ?? null;
@@ -166,37 +179,58 @@
 					totalPages = dp.total;
 				}
 				const pct = loc.start?.percentage;
+				const rawCfi = loc.start?.cfi;
+				const cfiStr = rawCfi != null ? (typeof rawCfi === 'string' ? rawCfi : (rawCfi as { toString?: () => string }).toString?.() ?? '') : undefined;
+				const cfiToSave = cfiStr && cfiStr.length > 10 ? cfiStr : undefined;
 				if (typeof pct === 'number' && pct >= 0 && pct <= 1) {
 					lastKnownPosition = pct;
 					if (bookId) {
 						if (savePositionTimer) clearTimeout(savePositionTimer);
 						savePositionTimer = setTimeout(() => {
 							savePositionTimer = null;
-							updateBookMetadata(bookId, { lastOpened: Date.now(), lastPosition: pct }).catch(() => {});
+							updateBookMetadata(bookId, { lastOpened: Date.now(), lastPosition: pct, lastCfi: cfiToSave }).catch(() => {});
 						}, SAVE_POSITION_MS);
 					}
 				}
 			});
 			const whenReady = bk.ready ?? Promise.resolve();
-			const lastPos = loadedMetadata?.lastPosition;
+			const lastCfi = meta?.lastCfi;
+			const lastPos = meta?.lastPosition;
+			const hasValidCfi = typeof lastCfi === 'string' && lastCfi.length > 10;
 			const hasValidLastPos = typeof lastPos === 'number' && lastPos >= 0 && lastPos <= 1;
-			if (hasValidLastPos) {
+			if (hasValidCfi) {
 				restoringPosition = true;
+				whenReady
+					.then(() => rend.display(lastCfi!).catch(() => { throw new Error('CFI restore failed'); }))
+					.then(() => {
+						setTimeout(() => {
+							restoringPosition = false;
+						}, 120);
+					})
+					.catch(() => {
+						if (hasValidLastPos) {
+							(bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}).then(() => {
+								rend.display(lastPos!).catch(() => {});
+								setTimeout(() => { restoringPosition = false; }, 120);
+							});
+						} else {
+							rend.display();
+							restoringPosition = false;
+						}
+					});
+			} else if (hasValidLastPos) {
+				restoringPosition = true;
+				rend.display();
+				const hideOverlayMs = 400;
+				setTimeout(() => {
+					restoringPosition = false;
+				}, hideOverlayMs);
 				whenReady
 					.then(() => (bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}))
 					.then(() => {
-						const tryRestore = () => rend.display(lastPos).catch(() => {});
-						tryRestore();
-						setTimeout(tryRestore, 150);
-						setTimeout(tryRestore, 500);
-						setTimeout(() => {
-							restoringPosition = false;
-						}, 800);
+						rend.display(lastPos!).catch(() => {});
 					})
-					.catch(() => {
-						rend.display();
-						restoringPosition = false;
-					});
+					.catch(() => {});
 			} else {
 				rend.display();
 				whenReady.then(() => (bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}));
@@ -215,13 +249,22 @@
 		};
 	});
 
-	// Theme when font size/family change
+	// Theme: font size, font family, and light/dark mode
 	$effect(() => {
 		if (!rendition) return;
 		readerFontSize;
 		readerFontFamily;
+		readerTheme;
 		rendition.themes.fontSize(readerFontSize + '%');
 		rendition.themes.font(readerFontFamily);
+		rendition.themes.default(THEME_STYLES[readerTheme]);
+		const contents = rendition.getContents() as ContentWithDoc[];
+		const fontRule = `body, body * { font-family: ${readerFontFamily} !important; }`;
+		contents.forEach((content) => {
+			if (content.addStylesheetCss) {
+				content.addStylesheetCss(fontRule, 'reader-font-force');
+			}
+		});
 	});
 
 	function goToHref(href: string) {
@@ -251,6 +294,14 @@
 	function onFullScreenChange() {
 		fullScreen = !!document.fullscreenElement;
 	}
+	/** Close other toolbar dropdowns so only one is open at a time */
+	function closeOtherToolbarDropdowns(exceptDetails: Element | null) {
+		const container = exceptDetails?.parentElement;
+		if (!container) return;
+		container.querySelectorAll('details.dropdown').forEach((d) => {
+			if (d !== exceptDetails) d.removeAttribute('open');
+		});
+	}
 	function onKeydown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement;
 		if (target.closest('input, textarea, [contenteditable]')) return;
@@ -278,20 +329,6 @@
 	const canPrev = $derived(!!rendition && !atStart);
 	const canNext = $derived(!!rendition && !atEnd);
 	const flatToc = $derived(flattenToc(toc));
-	const spine = $derived(spineHrefs);
-	const chapterNumber = $derived.by(() => {
-		if (!currentHref || spine.length === 0) return 0;
-		const idx = spine.indexOf(currentHref);
-		return idx >= 0 ? idx + 1 : 0;
-	});
-	const hasPageInfo = $derived(totalPages > 0);
-	const pageLabel = $derived(
-		hasPageInfo && chapterNumber > 0
-			? m.reader_chapter_page({ chapter: chapterNumber, current: currentPage, total: totalPages })
-			: hasPageInfo
-				? m.reader_page_of({ current: currentPage, total: totalPages })
-				: '—'
-	);
 
 	$effect(() => {
 		if (!tocListEl || !currentHref) return;
@@ -311,13 +348,21 @@
 		return () => clearTimeout(t);
 	});
 
-	/** Save reading position when user leaves (back, close tab) so we can restore next time */
-	function savePositionOnLeave() {
+	/** Save reading position when user leaves (back, close tab) so we can restore next time. Returns a promise so caller can wait before destroying. */
+	function savePositionOnLeave(): Promise<void> {
 		const id = bookId;
+		if (!id) return Promise.resolve();
 		const pct = lastKnownPosition;
-		if (id && typeof pct === 'number' && pct >= 0 && pct <= 1) {
-			updateBookMetadata(id, { lastOpened: Date.now(), lastPosition: pct }).catch(() => {});
+		const rawCfi = rendition?.location?.start?.cfi;
+		const cfiStr = rawCfi != null ? (typeof rawCfi === 'string' ? rawCfi : (rawCfi as { toString?: () => string }).toString?.() ?? '') : undefined;
+		const lastCfi = cfiStr && cfiStr.length > 10 ? cfiStr : undefined;
+		if (typeof pct === 'number' && pct >= 0 && pct <= 1) {
+			return updateBookMetadata(id, { lastOpened: Date.now(), lastPosition: pct, lastCfi: lastCfi });
 		}
+		if (lastCfi) {
+			return updateBookMetadata(id, { lastOpened: Date.now(), lastCfi: lastCfi });
+		}
+		return Promise.resolve();
 	}
 
 	onMount(() => {
@@ -329,13 +374,15 @@
 		};
 		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
-			savePositionOnLeave();
+			const destroy = () => {
+				rendition?.destroy();
+				book?.destroy();
+			};
+			savePositionOnLeave().then(destroy).catch(destroy);
 			document.removeEventListener('fullscreenchange', onFullScreenChange);
 			window.removeEventListener('keydown', onKeydown, true);
 			window.removeEventListener('pagehide', savePositionOnLeave);
 			document.removeEventListener('visibilitychange', onVisibilityChange);
-			rendition?.destroy();
-			book?.destroy();
 		};
 	});
 </script>
@@ -360,6 +407,8 @@
 			</div>
 		</div>
 	{:else if bookData}
+		<!-- Theme is applied globally via <html data-theme> from theme-store -->
+		<div class="reader-page h-full flex flex-col min-h-0 overflow-hidden bg-base-100">
 		<!-- Toolbar: sticky so it stays fixed when scrolling -->
 		<nav class="reader-toolbar sticky top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-center gap-2 h-14 px-2 md:px-3 bg-base-200 border-b border-base-300 shrink-0" aria-label="Reader toolbar">
 			<div class="menu-1 flex items-center justify-start gap-1 min-w-0">
@@ -376,33 +425,46 @@
 					{/if}
 				</button>
 			</div>
-			<div class="menu-center flex items-center justify-center gap-2 shrink-0 max-w-[min(100%,22rem)]" aria-label={pageLabel}>
-				<span class="text-sm text-base-content/80 whitespace-nowrap truncate">{pageLabel}</span>
+			<div class="menu-center flex items-center justify-center gap-2 shrink-0 max-w-[min(100%,22rem)]" aria-label={title || 'Book title'}>
+				<span class="text-sm text-base-content/80 whitespace-nowrap truncate">{title || '—'}</span>
 			</div>
-			<div class="menu-2 flex items-center justify-end gap-1 min-w-0">
-				<div class="dropdown dropdown-end hidden sm:block">
-					<button type="button" tabindex="0" class="btn btn-sm btn-ghost gap-1" aria-haspopup="listbox" aria-expanded="false"><span class="text-sm">Spread</span></button>
-					<ul role="listbox" tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-50 mt-1 w-40 p-2 shadow border border-base-300">
+			<div class="menu-2 flex items-center justify-end gap-1 min-w-0" role="group" aria-label="Reader options">
+				<button
+					type="button"
+					class="btn btn-sm btn-ghost btn-square"
+					title={readerTheme === 'dark' ? m.reader_theme_light() : m.reader_theme_dark()}
+					aria-label={readerTheme === 'dark' ? m.reader_theme_light() : m.reader_theme_dark()}
+					onclick={() => setTheme(readerTheme === 'dark' ? 'light' : 'dark')}
+				>
+					{#if readerTheme === 'dark'}
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+					{:else}
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+					{/if}
+				</button>
+				<details class="dropdown dropdown-end hidden sm:block">
+					<summary class="btn btn-sm btn-ghost gap-1" onclick={(e) => closeOtherToolbarDropdowns((e.currentTarget as HTMLElement).closest('details'))}><span class="text-sm">Spread</span></summary>
+					<ul role="listbox" class="dropdown-content menu bg-base-100 rounded-box z-50 mt-1 w-40 p-2 shadow border border-base-300">
 						<li><button type="button" class="text-sm {spreadMode === 'single' ? 'active' : ''}" onclick={() => setSpreadMode('single')}>Single page</button></li>
 						<li><button type="button" class="text-sm {spreadMode === 'double' ? 'active' : ''}" onclick={() => setSpreadMode('double')}>Two pages</button></li>
 					</ul>
-				</div>
-				<div class="dropdown dropdown-end hidden sm:block">
-					<button type="button" tabindex="0" class="btn btn-sm btn-ghost gap-1" aria-haspopup="listbox" aria-expanded="false"><span class="text-sm">{readerFontSize}%</span></button>
-					<ul role="listbox" tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-50 mt-1 w-32 p-2 shadow border border-base-300">
+				</details>
+				<details class="dropdown dropdown-end hidden sm:block" id="reader-font-family-dropdown">
+					<summary class="btn btn-sm btn-ghost gap-1" title={m.reader_font_family()} onclick={(e) => closeOtherToolbarDropdowns((e.currentTarget as HTMLElement).closest('details'))}><span class="text-sm">{m.reader_font_family()}</span></summary>
+					<ul role="listbox" class="dropdown-content menu menu-vertical bg-base-100 rounded-box z-50 mt-1 max-h-64 overflow-y-auto w-52 p-2 shadow border border-base-300 flex-nowrap">
+						{#each FONT_FAMILIES as fam}
+							<li class="w-full"><button type="button" class="text-sm w-full text-left py-2 px-3 rounded-md {readerFontFamily === fam.value ? 'active' : ''}" onclick={() => (readerFontFamily = fam.value)}>{fam.label()}</button></li>
+						{/each}
+					</ul>
+				</details>
+				<details class="dropdown dropdown-end hidden sm:block" id="reader-font-size-dropdown">
+					<summary class="btn btn-sm btn-ghost gap-1" title={m.reader_font_size()} onclick={(e) => closeOtherToolbarDropdowns((e.currentTarget as HTMLElement).closest('details'))}><span class="text-sm">{readerFontSize}%</span></summary>
+					<ul role="listbox" class="dropdown-content menu bg-base-100 rounded-box z-50 mt-1 w-32 p-2 shadow border border-base-300">
 						{#each FONT_SIZES as pct}
 							<li><button type="button" class="text-sm {readerFontSize === pct ? 'active' : ''}" onclick={() => (readerFontSize = pct)}>{pct}%</button></li>
 						{/each}
 					</ul>
-				</div>
-				<div class="dropdown dropdown-end hidden sm:block">
-					<button type="button" tabindex="0" class="btn btn-sm btn-ghost gap-1" aria-haspopup="listbox" aria-expanded="false"><span class="text-sm">{m.reader_font_family()}</span></button>
-					<ul role="listbox" tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-50 mt-1 w-36 p-2 shadow border border-base-300">
-						{#each FONT_FAMILIES as fam}
-							<li><button type="button" class="text-sm {readerFontFamily === fam.value ? 'active' : ''}" onclick={() => (readerFontFamily = fam.value)}>{fam.label()}</button></li>
-						{/each}
-					</ul>
-				</div>
+				</details>
 				<button type="button" class="btn btn-sm btn-ghost btn-square" onclick={toggleFullScreen} title={fullScreen ? m.reader_exit_full_screen() : m.reader_full_screen()} aria-label={fullScreen ? m.reader_exit_full_screen() : m.reader_full_screen()}>
 					{#if fullScreen}
 						<!-- Lucide Minimize2 -->
@@ -437,7 +499,12 @@
 				</nav>
 			</aside>
 
-			<div bind:this={readerContainer} class="reader-content flex-1 min-w-0 flex flex-col bg-base-100 overflow-hidden outline-none" tabindex="0" aria-label="Reading area – use arrow keys to turn pages">
+			<div
+				bind:this={readerContainer}
+				class="reader-content flex-1 min-w-0 flex flex-col overflow-hidden outline-none reader-theme-{readerTheme}"
+				tabindex="0"
+				aria-label="Reading area – use arrow keys to turn pages"
+			>
 				<div class="flex-1 min-h-0 flex items-stretch overflow-hidden">
 					<button
 						type="button"
@@ -448,13 +515,13 @@
 					>
 						<span class="text-4xl md:text-5xl lg:text-6xl font-bold text-base-content/40 hover:text-base-content/70 select-none">&lt;</span>
 					</button>
-					<div class="viewer-container flex-1 min-w-0 overflow-hidden flex items-center justify-center bg-base-100 relative">
+					<div class="viewer-container flex-1 min-w-0 overflow-hidden flex items-center justify-center relative reader-theme-bg-{readerTheme}">
 						<div bind:this={viewerEl} class="w-full h-full min-h-[400px]"></div>
 						{#if restoringPosition}
-							<div class="absolute inset-0 flex items-center justify-center bg-base-100/90 z-10" aria-live="polite" aria-busy="true">
+							<div class="absolute inset-0 flex items-center justify-center z-10 reader-restoring-overlay-{readerTheme}" aria-live="polite" aria-busy="true">
 								<div class="flex flex-col items-center gap-3">
 									<span class="loading loading-spinner loading-lg text-primary"></span>
-									<p class="text-sm text-base-content/80">{m.reader_restoring_position()}</p>
+									<p class="text-sm opacity-80">{m.reader_restoring_position()}</p>
 								</div>
 							</div>
 						{/if}
@@ -470,6 +537,7 @@
 					</button>
 				</div>
 			</div>
+		</div>
 		</div>
 	{/if}
 </div>
