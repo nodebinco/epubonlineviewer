@@ -70,6 +70,7 @@
 				await updateBookMetadata(id, { lastOpened: Date.now() });
 				await loadBooks();
 				input.value = '';
+				await new Promise((r) => setTimeout(r, 50));
 				goto(`/reader/${id}`);
 				return;
 			}
@@ -92,6 +93,8 @@
 			});
 			await loadBooks();
 			input.value = '';
+			// Yield so IndexedDB can flush before reader fetches
+			await new Promise((r) => setTimeout(r, 80));
 			goto(`/reader/${id}`);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);

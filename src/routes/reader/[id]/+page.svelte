@@ -62,17 +62,25 @@
 		currentHref = null;
 		currentPage = 1;
 		totalPages = 0;
-		getBookArrayBuffer(id)
-			.then(async (data) => {
+		async function loadBook() {
+			let data = await getBookArrayBuffer(id);
+			if (cancelled) return;
+			if (!data) {
+				// Retry once after a short delay (IndexedDB may not be flushed yet after upload)
+				await new Promise((r) => setTimeout(r, 350));
 				if (cancelled) return;
-				if (!data) {
-					error = m.reader_error_not_found();
-					return;
-				}
-				bookData = data.arrayBuffer;
-				loadedMetadata = data.metadata ? { lastPosition: data.metadata.lastPosition } : null;
-				await updateBookMetadata(id, { lastOpened: Date.now() });
-			})
+				data = await getBookArrayBuffer(id);
+			}
+			if (cancelled) return;
+			if (!data) {
+				error = m.reader_error_not_found();
+				return;
+			}
+			bookData = data.arrayBuffer;
+			loadedMetadata = data.metadata ? { lastPosition: data.metadata.lastPosition } : null;
+			await updateBookMetadata(id, { lastOpened: Date.now() });
+		}
+		loadBook()
 			.catch((e) => {
 				if (cancelled) return;
 				const msg = e instanceof Error ? e.message : String(e);
@@ -100,21 +108,17 @@
 		};
 	});
 
-	// 2) When bookData is set, wait for viewer div (bind:this) then create epub.js and render
-	const INIT_POLL_FRAMES = 30;
+	// 2) When bookData and viewerEl are both set, create epub.js and render (effect re-runs when viewerEl is bound)
 	let initRafId = 0;
 	$effect(() => {
 		const buf = bookData;
-		if (!buf) return;
-		let pollCount = 0;
-		function tryInit() {
-			pollCount++;
-			const el = viewerEl;
-			if (!el || !bookData || rendition) return;
-			if (!document.contains(el)) {
-				if (pollCount < INIT_POLL_FRAMES) initRafId = requestAnimationFrame(tryInit);
-				return;
-			}
+		const el = viewerEl;
+		if (!buf || !el || rendition) return;
+		if (!document.contains(el)) return;
+		// Defer one frame so the container is laid out
+		initRafId = requestAnimationFrame(() => {
+			const el2 = viewerEl;
+			if (!el2 || !bookData || rendition || !document.contains(el2)) return;
 			const arrayBuffer = bookData;
 			const requestMethod = (_url: string, type: string) =>
 				type === 'binary' ? Promise.resolve(arrayBuffer) : Promise.reject(new Error('Unexpected request'));
@@ -126,6 +130,7 @@
 				flow: 'paginated' as const,
 				spread: (spreadMode === 'double' ? 'always' : 'none') as 'always' | 'none',
 				minSpreadWidth: 800,
+				allowScriptedContent: true,
 			};
 			const rend = bk.renderTo(el, opts);
 			rendition = rend;
@@ -170,8 +175,7 @@
 					}
 				})
 				.catch(() => {});
-		};
-		initRafId = requestAnimationFrame(tryInit);
+		});
 		return () => {
 			cancelAnimationFrame(initRafId);
 			if (rendition) {
