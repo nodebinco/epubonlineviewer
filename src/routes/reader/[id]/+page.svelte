@@ -36,6 +36,12 @@
 	let currentHref = $state<string | null>(null);
 	let currentPage = $state(1);
 	let totalPages = $state(0);
+	/** Spine hrefs in order (for chapter number: Ch. N) */
+	let spineHrefs = $state<string[]>([]);
+	/** Last known position (0–1) for saving when leaving the page */
+	let lastKnownPosition = $state<number | null>(null);
+	/** True while generating locations and restoring saved position (show loading overlay) */
+	let restoringPosition = $state(false);
 	let readerFontSize = $state(100);
 	let readerFontFamily = $state<'serif' | 'sans-serif' | 'monospace'>('serif');
 	let spreadMode = $state<'single' | 'double'>('double');
@@ -62,6 +68,9 @@
 		currentHref = null;
 		currentPage = 1;
 		totalPages = 0;
+		spineHrefs = [];
+		lastKnownPosition = null;
+		restoringPosition = false;
 		async function loadBook() {
 			let data = await getBookArrayBuffer(id);
 			if (cancelled) return;
@@ -140,41 +149,58 @@
 			bk.loaded.metadata.then((meta: { title?: string }) => {
 				title = meta?.title ?? '';
 			});
+			bk.loaded.spine.then(() => {
+				const arr: string[] = [];
+				bk.spine.each((s: { href: string }) => arr.push(s.href));
+				spineHrefs = arr;
+			});
 			let savePositionTimer: ReturnType<typeof setTimeout> | null = null;
 			const SAVE_POSITION_MS = 1500;
-			rend.on('relocated', (loc: { atStart: boolean; atEnd: boolean; start?: { href?: string; location?: number; percentage?: number; displayed?: { page?: number; total?: number } } }) => {
+			rend.on('relocated', (loc: { atStart: boolean; atEnd: boolean; start?: { href?: string; percentage?: number; displayed?: { page?: number; total?: number } } }) => {
 				atStart = loc.atStart;
 				atEnd = loc.atEnd;
 				currentHref = loc.start?.href ?? null;
-				// Page: use displayed (per chapter) so numbers are 1,2,3... and total is correct for this chapter
 				const dp = loc.start?.displayed;
 				if (dp && typeof dp.page === 'number' && dp.page >= 1 && typeof dp.total === 'number' && dp.total >= 1) {
 					currentPage = dp.page;
 					totalPages = dp.total;
 				}
-				// Debounce save last position for continue-from-last (percentage is from locations when available)
 				const pct = loc.start?.percentage;
-				if (typeof pct === 'number' && pct >= 0 && pct <= 1 && bookId) {
-					if (savePositionTimer) clearTimeout(savePositionTimer);
-					savePositionTimer = setTimeout(() => {
-						savePositionTimer = null;
-						updateBookMetadata(bookId, { lastOpened: Date.now(), lastPosition: pct }).catch(() => {});
-					}, SAVE_POSITION_MS);
+				if (typeof pct === 'number' && pct >= 0 && pct <= 1) {
+					lastKnownPosition = pct;
+					if (bookId) {
+						if (savePositionTimer) clearTimeout(savePositionTimer);
+						savePositionTimer = setTimeout(() => {
+							savePositionTimer = null;
+							updateBookMetadata(bookId, { lastOpened: Date.now(), lastPosition: pct }).catch(() => {});
+						}, SAVE_POSITION_MS);
+					}
 				}
 			});
-			rend.display();
-			// Generate locations; then restore last position if we have one (continue from last read)
 			const whenReady = bk.ready ?? Promise.resolve();
 			const lastPos = loadedMetadata?.lastPosition;
 			const hasValidLastPos = typeof lastPos === 'number' && lastPos >= 0 && lastPos <= 1;
-			whenReady
-				.then(() => (bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}))
-				.then(() => {
-					if (hasValidLastPos && bk.locations?.length?.()) {
-						rend.display(lastPos).catch(() => {});
-					}
-				})
-				.catch(() => {});
+			if (hasValidLastPos) {
+				restoringPosition = true;
+				whenReady
+					.then(() => (bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}))
+					.then(() => {
+						const tryRestore = () => rend.display(lastPos).catch(() => {});
+						tryRestore();
+						setTimeout(tryRestore, 150);
+						setTimeout(tryRestore, 500);
+						setTimeout(() => {
+							restoringPosition = false;
+						}, 800);
+					})
+					.catch(() => {
+						rend.display();
+						restoringPosition = false;
+					});
+			} else {
+				rend.display();
+				whenReady.then(() => (bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}));
+			}
 		});
 		return () => {
 			cancelAnimationFrame(initRafId);
@@ -226,7 +252,8 @@
 		fullScreen = !!document.fullscreenElement;
 	}
 	function onKeydown(e: KeyboardEvent) {
-		if ((e.target as HTMLElement).closest('input, textarea, [contenteditable]')) return;
+		const target = e.target as HTMLElement;
+		if (target.closest('input, textarea, [contenteditable]')) return;
 		if (e.key === 'ArrowLeft') {
 			e.preventDefault();
 			goPrev();
@@ -251,7 +278,20 @@
 	const canPrev = $derived(!!rendition && !atStart);
 	const canNext = $derived(!!rendition && !atEnd);
 	const flatToc = $derived(flattenToc(toc));
+	const spine = $derived(spineHrefs);
+	const chapterNumber = $derived.by(() => {
+		if (!currentHref || spine.length === 0) return 0;
+		const idx = spine.indexOf(currentHref);
+		return idx >= 0 ? idx + 1 : 0;
+	});
 	const hasPageInfo = $derived(totalPages > 0);
+	const pageLabel = $derived(
+		hasPageInfo && chapterNumber > 0
+			? m.reader_chapter_page({ chapter: chapterNumber, current: currentPage, total: totalPages })
+			: hasPageInfo
+				? m.reader_page_of({ current: currentPage, total: totalPages })
+				: '—'
+	);
 
 	$effect(() => {
 		if (!tocListEl || !currentHref) return;
@@ -261,12 +301,39 @@
 		btn?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 	});
 
+	$effect(() => {
+		if (!rendition) return;
+		const el = readerContainer;
+		if (!el) return;
+		const t = setTimeout(() => {
+			el.focus({ preventScroll: true });
+		}, 100);
+		return () => clearTimeout(t);
+	});
+
+	/** Save reading position when user leaves (back, close tab) so we can restore next time */
+	function savePositionOnLeave() {
+		const id = bookId;
+		const pct = lastKnownPosition;
+		if (id && typeof pct === 'number' && pct >= 0 && pct <= 1) {
+			updateBookMetadata(id, { lastOpened: Date.now(), lastPosition: pct }).catch(() => {});
+		}
+	}
+
 	onMount(() => {
 		document.addEventListener('fullscreenchange', onFullScreenChange);
-		document.addEventListener('keydown', onKeydown);
+		window.addEventListener('keydown', onKeydown, true);
+		window.addEventListener('pagehide', savePositionOnLeave);
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'hidden') savePositionOnLeave();
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
+			savePositionOnLeave();
 			document.removeEventListener('fullscreenchange', onFullScreenChange);
-			document.removeEventListener('keydown', onKeydown);
+			window.removeEventListener('keydown', onKeydown, true);
+			window.removeEventListener('pagehide', savePositionOnLeave);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 			rendition?.destroy();
 			book?.destroy();
 		};
@@ -309,12 +376,8 @@
 					{/if}
 				</button>
 			</div>
-			<div class="menu-center flex items-center justify-center shrink-0" aria-label={m.reader_page_of({ current: currentPage, total: totalPages || 1 })}>
-				{#if hasPageInfo}
-					<span class="text-sm text-base-content/80 whitespace-nowrap">{m.reader_page_of({ current: currentPage, total: totalPages })}</span>
-				{:else}
-					<span class="text-sm text-base-content/50 whitespace-nowrap">—</span>
-				{/if}
+			<div class="menu-center flex items-center justify-center gap-2 shrink-0 max-w-[min(100%,22rem)]" aria-label={pageLabel}>
+				<span class="text-sm text-base-content/80 whitespace-nowrap truncate">{pageLabel}</span>
 			</div>
 			<div class="menu-2 flex items-center justify-end gap-1 min-w-0">
 				<div class="dropdown dropdown-end hidden sm:block">
@@ -374,7 +437,7 @@
 				</nav>
 			</aside>
 
-			<div bind:this={readerContainer} class="reader-content flex-1 min-w-0 flex flex-col bg-base-100 overflow-hidden">
+			<div bind:this={readerContainer} class="reader-content flex-1 min-w-0 flex flex-col bg-base-100 overflow-hidden outline-none" tabindex="0" aria-label="Reading area – use arrow keys to turn pages">
 				<div class="flex-1 min-h-0 flex items-stretch overflow-hidden">
 					<button
 						type="button"
@@ -385,8 +448,16 @@
 					>
 						<span class="text-4xl md:text-5xl lg:text-6xl font-bold text-base-content/40 hover:text-base-content/70 select-none">&lt;</span>
 					</button>
-					<div class="viewer-container flex-1 min-w-0 overflow-hidden flex items-center justify-center bg-base-100">
+					<div class="viewer-container flex-1 min-w-0 overflow-hidden flex items-center justify-center bg-base-100 relative">
 						<div bind:this={viewerEl} class="w-full h-full min-h-[400px]"></div>
+						{#if restoringPosition}
+							<div class="absolute inset-0 flex items-center justify-center bg-base-100/90 z-10" aria-live="polite" aria-busy="true">
+								<div class="flex flex-col items-center gap-3">
+									<span class="loading loading-spinner loading-lg text-primary"></span>
+									<p class="text-sm text-base-content/80">{m.reader_restoring_position()}</p>
+								</div>
+							</div>
+						{/if}
 					</div>
 					<button
 						type="button"

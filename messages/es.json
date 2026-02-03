@@ -50,5 +50,7 @@
 	"reader_spread_single": "Una página",
 	"reader_spread_double": "Dos páginas",
 	"reader_page_of": "Página {current} de {total}",
-	"reader_jump_to_page": "Ir a página"
+	"reader_chapter_page": "Cap. {chapter} Pág. {current} de {total}",
+	"reader_jump_to_page": "Ir a página",
+	"reader_restoring_position": "Restaurando posición…"
 }
