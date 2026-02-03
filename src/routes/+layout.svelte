@@ -11,7 +11,6 @@
 
 	let { children } = $props();
 	let navOpen = $state(false);
-	let moreOpen = $state(false);
 
 	// Use the locale from the server-injected <html lang="..."> so SSR and first client paint match (avoids hydration_mismatch).
 	const displayLocale = $derived(
@@ -43,16 +42,9 @@
 						</svg>
 					</summary>
 					<ul class="menu dropdown-content bg-base-100 rounded-box z-50 mt-2 w-56 p-2 shadow">
-						<li><a href="/">{m.nav_home({ locale: displayLocale })}</a></li>
 						<li><a href="/getting-started">{m.nav_getting_started({ locale: displayLocale })}</a></li>
 						<li><a href="/what-is-epub">{m.nav_what_is_epub({ locale: displayLocale })}</a></li>
-						<li><a href="/supported-formats">{m.nav_supported_formats({ locale: displayLocale })}</a></li>
-						<li><a href="/keyboard-shortcuts">{m.nav_keyboard_shortcuts({ locale: displayLocale })}</a></li>
-						<li><a href="/faq">{m.nav_faq({ locale: displayLocale })}</a></li>
-						<li><a href="/about-us">{m.nav_about({ locale: displayLocale })}</a></li>
-						<li><a href="/contact-us">{m.nav_contact({ locale: displayLocale })}</a></li>
-						<li><a href="/privacy-policy">{m.nav_privacy({ locale: displayLocale })}</a></li>
-						<li><a href="/terms-of-use">{m.nav_terms({ locale: displayLocale })}</a></li>
+						<li><a href="/">{m.nav_open_epub_reader({ locale: displayLocale })}</a></li>
 					</ul>
 				</details>
 				<a href="/" class="flex items-center gap-2 px-2 hover:opacity-90">
@@ -62,23 +54,8 @@
 			</div>
 			<div class="navbar-center hidden lg:flex">
 				<ul class="menu menu-horizontal gap-1 px-1">
-					<li><a href="/" class:active={page.url.pathname === '/'}>{m.nav_home({ locale: displayLocale })}</a></li>
 					<li><a href="/getting-started">{m.nav_getting_started({ locale: displayLocale })}</a></li>
 					<li><a href="/what-is-epub">{m.nav_what_is_epub({ locale: displayLocale })}</a></li>
-					<li><a href="/supported-formats">{m.nav_supported_formats({ locale: displayLocale })}</a></li>
-					<li><a href="/keyboard-shortcuts">{m.nav_keyboard_shortcuts({ locale: displayLocale })}</a></li>
-					<li><a href="/faq">{m.nav_faq({ locale: displayLocale })}</a></li>
-					<li>
-						<details class="dropdown" bind:open={moreOpen}>
-							<summary class="cursor-pointer">{m.nav_more({ locale: displayLocale })}</summary>
-							<ul class="menu dropdown-content bg-base-100 rounded-box z-50 mt-1 w-48 p-2 shadow">
-								<li><a href="/about-us">{m.nav_about({ locale: displayLocale })}</a></li>
-								<li><a href="/contact-us">{m.nav_contact({ locale: displayLocale })}</a></li>
-								<li><a href="/privacy-policy">{m.nav_privacy({ locale: displayLocale })}</a></li>
-								<li><a href="/terms-of-use">{m.nav_terms({ locale: displayLocale })}</a></li>
-							</ul>
-						</details>
-					</li>
 				</ul>
 			</div>
 			<div class="navbar-end gap-1">
@@ -109,15 +86,24 @@
 						{/each}
 					</ul>
 				</div>
+				<a href="/" class="btn btn-primary btn-sm md:btn-md">{m.nav_open_epub_reader({ locale: displayLocale })}</a>
 			</div>
 			</div>
 		</header>
 		<!-- Main: same max-w + padding as reader; no aside bar on the right -->
-		<div class="flex-1 flex min-h-0 w-full max-w-[1920px] mx-auto px-2 md:px-3 overflow-hidden">
-			<main class="flex-1 min-w-0 min-h-0 flex flex-col pt-14 md:pt-16">
+		<div class="flex-1 flex min-h-0 w-full max-w-[1920px] mx-auto px-2 md:px-3 overflow-hidden flex-col">
+			<main class="flex-1 min-w-0 min-h-0 flex flex-col pt-14 md:pt-16 overflow-auto">
 				{@render children()}
 			</main>
 		</div>
+		<footer class="footer footer-center bg-base-200 border-t border-base-300 p-6 text-base-content/80 text-sm">
+			<div class="flex flex-wrap justify-center gap-4 md:gap-6">
+				<a href="/about-us" class="link link-hover">{m.footer_about({ locale: displayLocale })}</a>
+				<a href="/privacy-policy" class="link link-hover">{m.footer_privacy({ locale: displayLocale })}</a>
+				<a href="/terms-of-use" class="link link-hover">{m.footer_terms({ locale: displayLocale })}</a>
+				<a href="/contact-us" class="link link-hover">{m.footer_contact({ locale: displayLocale })}</a>
+			</div>
+		</footer>
 	{:else}
 		<!-- Reader: exactly viewport height, no page scroll; TOC and content scroll independently inside -->
 		<div class="h-screen max-h-dvh w-full max-w-[1920px] mx-auto flex flex-col overflow-hidden">

@@ -13,6 +13,12 @@ export interface EpubBookMetadata {
 	lastPosition?: number;
 	/** CFI string for fast restore without generating locations. */
 	lastCfi?: string;
+	/** Spine chapter href for immediate restore to the right chapter. */
+	lastHref?: string;
+	/** Reader UI settings (per-book). */
+	fontSize?: number;
+	fontFamily?: string;
+	spreadMode?: 'single' | 'double';
 	spineLength?: number;
 }
 

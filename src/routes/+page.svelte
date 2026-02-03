@@ -233,4 +233,24 @@
 			</ul>
 		{/if}
 	</section>
+
+	<!-- SEO / app content below library -->
+	<article class="mt-12 md:mt-16 space-y-8 max-w-3xl text-base-content/90">
+		<h2 class="text-xl font-bold">{m.home_seo_heading()}</h2>
+		<p class="text-sm md:text-base leading-relaxed">{m.home_seo_intro()}</p>
+		<section>
+			<h3 class="text-lg font-semibold mb-3">{m.home_seo_features_title()}</h3>
+			<ul class="space-y-3 text-sm md:text-base leading-relaxed list-disc list-inside">
+				<li>{m.home_seo_feature_upload()}</li>
+				<li>{m.home_seo_feature_reader()}</li>
+				<li>{m.home_seo_feature_privacy()}</li>
+				<li>{m.home_seo_feature_i18n()}</li>
+				<li>{m.home_seo_feature_theme()}</li>
+			</ul>
+		</section>
+		<section>
+			<h3 class="text-lg font-semibold mb-3">{m.home_seo_app_title()}</h3>
+			<p class="text-sm md:text-base leading-relaxed">{m.home_seo_app_body()}</p>
+		</section>
+	</article>
 </main>

@@ -29,8 +29,8 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let bookData = $state<ArrayBuffer | null>(null);
-	/** Metadata from last load (for lastPosition/lastCfi restore). */
-	let loadedMetadata = $state<{ lastPosition?: number; lastCfi?: string } | null>(null);
+	/** Metadata from last load (for lastPosition/lastCfi/lastHref restore). */
+	let loadedMetadata = $state<{ lastPosition?: number; lastCfi?: string; lastHref?: string } | null>(null);
 	let book = $state<ReturnType<typeof ePub> | null>(null);
 	let rendition = $state<ReturnType<ReturnType<typeof ePub>['renderTo']> | null>(null);
 	let viewerEl = $state<HTMLDivElement | null>(null);
@@ -79,6 +79,9 @@
 		spineHrefs = [];
 		lastKnownPosition = null;
 		restoringPosition = false;
+		readerFontSize = 100;
+		readerFontFamily = 'serif';
+		spreadMode = 'double';
 		async function loadBook() {
 			let data = await getBookArrayBuffer(id);
 			if (cancelled) return;
@@ -95,8 +98,19 @@
 			}
 			bookData = data.arrayBuffer;
 			loadedMetadata = data.metadata
-				? { lastPosition: data.metadata.lastPosition, lastCfi: data.metadata.lastCfi }
+				? { lastPosition: data.metadata.lastPosition, lastCfi: data.metadata.lastCfi, lastHref: data.metadata.lastHref }
 				: null;
+			if (data.metadata) {
+				if (typeof data.metadata.fontSize === 'number' && data.metadata.fontSize >= 90 && data.metadata.fontSize <= 150) {
+					readerFontSize = data.metadata.fontSize;
+				}
+				if (typeof data.metadata.fontFamily === 'string' && data.metadata.fontFamily.length > 0) {
+					readerFontFamily = data.metadata.fontFamily;
+				}
+				if (data.metadata.spreadMode === 'single' || data.metadata.spreadMode === 'double') {
+					spreadMode = data.metadata.spreadMode;
+				}
+			}
 			await updateBookMetadata(id, { lastOpened: Date.now() });
 		}
 		loadBook()
@@ -180,6 +194,7 @@
 				}
 				const pct = loc.start?.percentage;
 				const rawCfi = loc.start?.cfi;
+				const href = loc.start?.href ?? null;
 				const cfiStr = rawCfi != null ? (typeof rawCfi === 'string' ? rawCfi : (rawCfi as { toString?: () => string }).toString?.() ?? '') : undefined;
 				const cfiToSave = cfiStr && cfiStr.length > 10 ? cfiStr : undefined;
 				if (typeof pct === 'number' && pct >= 0 && pct <= 1) {
@@ -188,7 +203,7 @@
 						if (savePositionTimer) clearTimeout(savePositionTimer);
 						savePositionTimer = setTimeout(() => {
 							savePositionTimer = null;
-							updateBookMetadata(bookId, { lastOpened: Date.now(), lastPosition: pct, lastCfi: cfiToSave }).catch(() => {});
+							updateBookMetadata(bookId, { lastOpened: Date.now(), lastPosition: pct, lastCfi: cfiToSave, lastHref: href ?? undefined }).catch(() => {});
 						}, SAVE_POSITION_MS);
 					}
 				}
@@ -196,17 +211,35 @@
 			const whenReady = bk.ready ?? Promise.resolve();
 			const lastCfi = meta?.lastCfi;
 			const lastPos = meta?.lastPosition;
+			const lastHref = meta?.lastHref;
 			const hasValidCfi = typeof lastCfi === 'string' && lastCfi.length > 10;
 			const hasValidLastPos = typeof lastPos === 'number' && lastPos >= 0 && lastPos <= 1;
+			const hasValidHref = typeof lastHref === 'string' && lastHref.length > 0;
 			if (hasValidCfi) {
 				restoringPosition = true;
 				whenReady
 					.then(() => rend.display(lastCfi!).catch(() => { throw new Error('CFI restore failed'); }))
 					.then(() => {
-						setTimeout(() => {
-							restoringPosition = false;
-						}, 120);
+						setTimeout(() => { restoringPosition = false; }, 120);
 					})
+					.catch(() => {
+						if (hasValidHref) {
+							rend.display(lastHref!).then(() => setTimeout(() => { restoringPosition = false; }, 120)).catch(() => { restoringPosition = false; });
+						} else if (hasValidLastPos) {
+							(bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}).then(() => {
+								rend.display(lastPos!).catch(() => {});
+								setTimeout(() => { restoringPosition = false; }, 120);
+							});
+						} else {
+							rend.display();
+							restoringPosition = false;
+						}
+					});
+			} else if (hasValidHref) {
+				restoringPosition = true;
+				whenReady
+					.then(() => rend.display(lastHref!))
+					.then(() => setTimeout(() => { restoringPosition = false; }, 120))
 					.catch(() => {
 						if (hasValidLastPos) {
 							(bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}).then(() => {
@@ -221,15 +254,10 @@
 			} else if (hasValidLastPos) {
 				restoringPosition = true;
 				rend.display();
-				const hideOverlayMs = 400;
-				setTimeout(() => {
-					restoringPosition = false;
-				}, hideOverlayMs);
+				setTimeout(() => { restoringPosition = false; }, 400);
 				whenReady
 					.then(() => (bk.locations?.generate?.() ?? Promise.resolve()).catch(() => {}))
-					.then(() => {
-						rend.display(lastPos!).catch(() => {});
-					})
+					.then(() => rend.display(lastPos!).catch(() => {}))
 					.catch(() => {});
 			} else {
 				rend.display();
@@ -265,6 +293,20 @@
 				content.addStylesheetCss(fontRule, 'reader-font-force');
 			}
 		});
+	});
+
+	// Persist reader settings (font, font size, spread) to IndexedDB when they change
+	const SAVE_SETTINGS_MS = 600;
+	$effect(() => {
+		const id = bookId;
+		if (!id || !rendition) return;
+		const size = readerFontSize;
+		const family = readerFontFamily;
+		const spread = spreadMode;
+		const t = setTimeout(() => {
+			updateBookMetadata(id, { fontSize: size, fontFamily: family, spreadMode: spread }).catch(() => {});
+		}, SAVE_SETTINGS_MS);
+		return () => clearTimeout(t);
 	});
 
 	function goToHref(href: string) {
@@ -354,13 +396,15 @@
 		if (!id) return Promise.resolve();
 		const pct = lastKnownPosition;
 		const rawCfi = rendition?.location?.start?.cfi;
+		const href = rendition?.location?.start?.href ?? currentHref;
 		const cfiStr = rawCfi != null ? (typeof rawCfi === 'string' ? rawCfi : (rawCfi as { toString?: () => string }).toString?.() ?? '') : undefined;
 		const lastCfi = cfiStr && cfiStr.length > 10 ? cfiStr : undefined;
+		const lastHrefVal = href && String(href).trim() ? href : undefined;
 		if (typeof pct === 'number' && pct >= 0 && pct <= 1) {
-			return updateBookMetadata(id, { lastOpened: Date.now(), lastPosition: pct, lastCfi: lastCfi });
+			return updateBookMetadata(id, { lastOpened: Date.now(), lastPosition: pct, lastCfi: lastCfi, lastHref: lastHrefVal });
 		}
-		if (lastCfi) {
-			return updateBookMetadata(id, { lastOpened: Date.now(), lastCfi: lastCfi });
+		if (lastCfi || lastHrefVal) {
+			return updateBookMetadata(id, { lastOpened: Date.now(), lastCfi: lastCfi, lastHref: lastHrefVal });
 		}
 		return Promise.resolve();
 	}
