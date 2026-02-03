@@ -60,7 +60,7 @@ Same rule: kebab-case routes, all copy via Paraglide.
 ## OPSX / openspec
 
 - **Changes** live under `openspec/changes/<change-name>/` (kebab-case).
-- **Schema**: Default is `spec-driven` (proposal → design → specs → tasks). Use `npx openspec` for `new`, `status`, `instructions`, `continue`, etc.
+- **Schema**: Default is `spec-driven` (proposal → design → specs → tasks). Use `bunx openspec` for `new`, `status`, `instructions`, `continue`, etc.
 - Do not create artifacts until the user has seen the first-artifact instructions and confirmed (e.g. via `/opsx:continue` or explicit “go ahead”).
 
 ## What to do when adding a feature

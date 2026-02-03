@@ -1,26 +1,51 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+/* Navbar brand: EPUB + Online Viewer */
+.brand-text {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: flex-start;
+	line-height: 1.2;
+	gap: 0.05rem;
+}
+.brand-name {
+	font-size: 1.125rem;
+	font-weight: 700;
+	color: var(--color-primary);
+	letter-spacing: 0.02em;
+}
+.brand-tagline {
+	font-size: 0.7rem;
+	font-weight: 500;
+	color: var(--color-base-content);
+	opacity: 0.85;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
 /* Site theme: follow reader palette so navbar, pages and reader look the same */
 
-/* Light: reader-style cream (easy on eyes) */
+/* Light: reader-style cream (easy on eyes) + teal primary */
 [data-theme='light'] {
 	color-scheme: light;
 	--color-base-100: #faf8f5;
 	--color-base-200: #f0ede8;
 	--color-base-300: #e6e2dc;
 	--color-base-content: #1a1a1a;
+	--color-primary: #0d9488;
+	--color-primary-content: #f0fdfa;
 }
 
-/* Dark: reader-style black/gray */
+/* Dark: reader-style black/gray + teal primary */
 [data-theme='dark'] {
 	color-scheme: dark;
 	--color-base-100: #1a1a1a;
 	--color-base-200: #0d0d0d;
 	--color-base-300: #262626;
 	--color-base-content: #e6edf3;
-	--color-primary: #3b82f6;
-	--color-primary-content: #e6edf3;
+	--color-primary: #2dd4bf;
+	--color-primary-content: #134e4a;
 	--color-secondary: #262626;
 	--color-secondary-content: #e6edf3;
 	--color-accent: #262626;
@@ -52,4 +77,125 @@
 }
 .reader-restoring-overlay-dark p {
 	color: #e6edf3;
+}
+
+/* Home page content: consistent font size, tighter line-height, readable width */
+.home-content {
+	line-height: 1.45;
+	font-size: 0.9375rem; /* 15px – one size for all body text */
+}
+.home-content p,
+.home-content li {
+	line-height: 1.45;
+}
+.home-content h2,
+.home-content h3 {
+	font-size: 1.125rem; /* 18px – same for all section titles */
+	font-weight: 700;
+}
+.home-content h4 {
+	font-size: 0.9375rem;
+	font-weight: 600;
+}
+.home-content .section-narrow {
+	max-width: 42rem;
+}
+.home-content .section-narrow-xl {
+	max-width: 48rem;
+}
+
+/* Long-form page content: headers, sections, promote cards */
+.page-content {
+	max-width: 48rem;
+	margin-left: auto;
+	margin-right: auto;
+	line-height: 1.55;
+	color: var(--color-base-content);
+}
+.page-content h1 {
+	font-size: 1.75rem;
+	font-weight: 700;
+	margin-bottom: 0.75rem;
+	padding-bottom: 0.5rem;
+	border-bottom: 2px solid var(--color-primary);
+}
+.page-content h2 {
+	font-size: 1.25rem;
+	font-weight: 700;
+	margin-top: 2rem;
+	margin-bottom: 0.75rem;
+	padding-left: 0.75rem;
+	border-left: 4px solid var(--color-primary);
+}
+.page-content h3 {
+	font-size: 1.1rem;
+	font-weight: 600;
+	margin-top: 1.5rem;
+	margin-bottom: 0.5rem;
+}
+.page-content p {
+	margin-bottom: 1rem;
+}
+.page-content ul, .page-content ol {
+	margin-bottom: 1rem;
+	padding-left: 1.5rem;
+}
+.page-content li {
+	margin-bottom: 0.35rem;
+}
+.page-content .section-block {
+	margin-bottom: 2rem;
+}
+.page-content .promote-section {
+	margin-top: 2.5rem;
+	margin-bottom: 2rem;
+	padding: 1.5rem;
+	background: var(--color-base-200);
+	border: 1px solid var(--color-base-300);
+	border-radius: 0.75rem;
+}
+.page-content .promote-section h2 {
+	margin-top: 0;
+	margin-bottom: 1rem;
+	border-left: none;
+	padding-left: 0;
+	border-bottom: none;
+	text-align: center;
+	font-size: 1.25rem;
+}
+.page-content .promote-cards {
+	display: grid;
+	gap: 1rem;
+	grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+	margin-top: 1rem;
+}
+.page-content .promote-card {
+	background: var(--color-base-100);
+	border: 1px solid var(--color-base-300);
+	border-radius: 0.5rem;
+	padding: 1rem;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+	transition: box-shadow 0.2s, border-color 0.2s;
+}
+.page-content .promote-card:hover {
+	box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+	border-color: var(--color-primary);
+}
+.page-content .promote-card h3 {
+	margin-top: 0;
+	margin-bottom: 0.5rem;
+	font-size: 1rem;
+	color: var(--color-primary);
+}
+.page-content .promote-card p {
+	margin-bottom: 0;
+	font-size: 0.9rem;
+	line-height: 1.45;
+}
+.page-content .promote-cta {
+	text-align: center;
+	margin-top: 1.25rem;
+}
+.page-content .promote-cta .btn {
+	font-weight: 600;
 }

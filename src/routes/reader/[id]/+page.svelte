@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { getBookArrayBuffer, updateBookMetadata } from '$lib';
 	import { m } from '$lib/paraglide/messages';
+	import { localizeHref, locales, baseLocale } from '$lib/paraglide/runtime';
 	import { themeStore, setTheme } from '$lib/theme-store';
 	import ePub from 'epubjs';
 	import '../../../app.css';
@@ -58,6 +59,15 @@
 	let tocListEl = $state<HTMLUListElement | null>(null);
 
 	const bookId = $derived(page.params.id);
+
+	// Current locale from URL (e.g. /es/reader/xxx → es) for localized "back to library" link
+	const displayLocale = $derived.by(() => {
+		const pathname = page.url.pathname;
+		const segments = pathname.split('/').filter(Boolean);
+		if (segments.length > 0 && locales.includes(segments[0] as (typeof locales)[number])) return segments[0];
+		return baseLocale;
+	});
+	const homeHref = $derived(localizeHref('/', { locale: displayLocale }));
 
 	// 1) Load book data when route id changes; use cancelled flag so we don't apply stale results
 	$effect(() => {
@@ -447,7 +457,7 @@
 		<div class="flex-1 flex items-center justify-center p-8">
 			<div class="text-center">
 				<p class="text-error text-lg">{error}</p>
-				<a href="/" class="btn btn-primary mt-4">{m.back_to_library()}</a>
+				<a href={homeHref} class="btn btn-primary mt-4">{m.back_to_library()}</a>
 			</div>
 		</div>
 	{:else if bookData}
@@ -456,7 +466,7 @@
 		<!-- Toolbar: sticky so it stays fixed when scrolling -->
 		<nav class="reader-toolbar sticky top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-center gap-2 h-14 px-2 md:px-3 bg-base-200 border-b border-base-300 shrink-0" aria-label="Reader toolbar">
 			<div class="menu-1 flex items-center justify-start gap-1 min-w-0">
-				<a href="/" class="btn btn-sm btn-ghost btn-square" title={m.back_to_library()} aria-label={m.back_to_library()}>
+				<a href={homeHref} class="btn btn-sm btn-ghost btn-square" title={m.back_to_library()} aria-label={m.back_to_library()}>
 					<!-- Lucide ArrowLeft -->
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
 				</a>

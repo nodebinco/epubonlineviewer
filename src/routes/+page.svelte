@@ -54,10 +54,8 @@
 		}
 	}
 
-	async function onFileChange(e: Event) {
-		const input = e.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file || !file.name.toLowerCase().endsWith('.epub')) return;
+	async function processFile(file: File) {
+		if (!file.name.toLowerCase().endsWith('.epub')) return;
 		uploading = true;
 		error = null;
 		errorDetail = null;
@@ -69,7 +67,6 @@
 			if (existing) {
 				await updateBookMetadata(id, { lastOpened: Date.now() });
 				await loadBooks();
-				input.value = '';
 				await new Promise((r) => setTimeout(r, 50));
 				goto(`/reader/${id}`);
 				return;
@@ -92,8 +89,6 @@
 				},
 			});
 			await loadBooks();
-			input.value = '';
-			// Yield so IndexedDB can flush before reader fetches
 			await new Promise((r) => setTimeout(r, 80));
 			goto(`/reader/${id}`);
 		} catch (err) {
@@ -108,6 +103,45 @@
 		} finally {
 			uploading = false;
 		}
+	}
+
+	async function onFileChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		await processFile(file);
+		input.value = '';
+	}
+
+	let dropZoneActive = $state(false);
+
+	function onDropZoneClick() {
+		if (uploading) return;
+		fileInput?.click();
+	}
+
+	function onDragOver(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (uploading) return;
+		dropZoneActive = true;
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+	}
+
+	function onDragLeave(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dropZoneActive = false;
+	}
+
+	async function onDrop(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dropZoneActive = false;
+		if (uploading) return;
+		const file = e.dataTransfer?.files?.[0];
+		if (!file) return;
+		await processFile(file);
 	}
 
 	function openBook(id: string) {
@@ -135,39 +169,64 @@
 		</p>
 	</section>
 
-	<!-- Upload card -->
-	<section class="card bg-base-100 shadow-sm border border-base-300 mb-8">
-		<div class="card-body">
-			<h2 class="card-title text-lg">{m.upload_new_file()}</h2>
-			<div class="form-control w-full max-w-md">
-				<label for="epub-upload" class="label">
-					<span class="label-text">.epub</span>
-				</label>
-				<input
-					id="epub-upload"
-					bind:this={fileInput}
-					type="file"
-					accept=".epub"
-					class="file-input file-input-bordered w-full"
-					onchange={onFileChange}
-					disabled={uploading}
-				/>
+	<!-- Upload zone: drag & drop + click to browse -->
+	<section class="mb-8">
+		<h2 class="sr-only">{m.upload_new_file()}</h2>
+		<input
+			id="epub-upload"
+			bind:this={fileInput}
+			type="file"
+			accept=".epub,application/epub+zip"
+			class="sr-only"
+			onchange={onFileChange}
+			disabled={uploading}
+			aria-hidden="true"
+		/>
+		<button
+			type="button"
+			class="w-full rounded-2xl border-2 border-dashed transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 {dropZoneActive
+				? 'border-primary bg-primary/10 scale-[1.01]'
+				: 'border-base-300 bg-base-200/50 hover:border-base-content/30 hover:bg-base-200'} {uploading ? 'pointer-events-none opacity-70' : 'cursor-pointer'}"
+			ondragenter={onDragOver}
+			ondragover={onDragOver}
+			ondragleave={onDragLeave}
+			ondrop={onDrop}
+			onclick={onDropZoneClick}
+			disabled={uploading}
+			aria-label={m.upload_new_file()}
+		>
+			<div class="flex flex-col items-center justify-center gap-3 py-12 px-6 md:py-16 md:px-8">
+				{#if uploading}
+					<span class="loading loading-spinner loading-lg text-primary" aria-hidden="true"></span>
+					<p class="text-base font-medium text-base-content/80">{m.uploading()}</p>
+				{:else}
+					<div class="rounded-xl bg-base-300/80 p-4 text-base-content/60 {dropZoneActive ? 'bg-primary/20 text-primary' : ''}" aria-hidden="true">
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 md:h-14 md:w-14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+						</svg>
+					</div>
+					<div class="text-center space-y-1">
+						<p class="text-base md:text-lg font-semibold text-base-content">
+							{typeof m.upload_drop_here === 'function' ? m.upload_drop_here() : 'Drag and drop your EPUB here'}
+						</p>
+						<p class="text-sm text-base-content/60">
+							{typeof m.upload_or_browse === 'function' ? m.upload_or_browse() : 'or click to browse'}
+						</p>
+						<p class="text-xs text-base-content/50 mt-1">
+							{typeof m.upload_accept_epub === 'function' ? m.upload_accept_epub() : '.epub files only'}
+						</p>
+					</div>
+				{/if}
 			</div>
-			{#if uploading}
-				<p class="text-sm text-base-content/70 flex items-center gap-2">
-					<span class="loading loading-spinner loading-sm"></span>
-					{m.uploading()}
-				</p>
-			{/if}
-			{#if error}
-				<div class="alert alert-error text-sm mt-2">
-					<span>{error}</span>
-					{#if errorDetail}
-						<span class="block mt-1 text-xs opacity-80">{errorDetail}</span>
-					{/if}
-				</div>
-			{/if}
-		</div>
+		</button>
+		{#if error}
+			<div class="alert alert-error text-sm mt-4 shadow-sm" role="alert">
+				<span>{error}</span>
+				{#if errorDetail}
+					<span class="block mt-1 text-xs opacity-80">{errorDetail}</span>
+				{/if}
+			</div>
+		{/if}
 	</section>
 
 	<!-- Gallery -->
@@ -234,23 +293,163 @@
 		{/if}
 	</section>
 
-	<!-- SEO / app content below library -->
-	<article class="mt-12 md:mt-16 space-y-8 max-w-3xl text-base-content/90">
-		<h2 class="text-xl font-bold">{m.home_seo_heading()}</h2>
-		<p class="text-sm md:text-base leading-relaxed">{m.home_seo_intro()}</p>
-		<section>
-			<h3 class="text-lg font-semibold mb-3">{m.home_seo_features_title()}</h3>
-			<ul class="space-y-3 text-sm md:text-base leading-relaxed list-disc list-inside">
-				<li>{m.home_seo_feature_upload()}</li>
-				<li>{m.home_seo_feature_reader()}</li>
-				<li>{m.home_seo_feature_privacy()}</li>
-				<li>{m.home_seo_feature_i18n()}</li>
-				<li>{m.home_seo_feature_theme()}</li>
+	<!-- Content below library: features, benefits, why use us (same width as upload) -->
+	<article class="home-content mt-10 md:mt-14 w-full max-w-4xl mx-auto px-4 space-y-8 md:space-y-10 text-base-content/90">
+		<!-- Intro -->
+		<section class="space-y-3 section-narrow">
+			<h2>{m.home_seo_heading()}</h2>
+			<p>{m.home_seo_intro()}</p>
+			<p>{m.home_intro_2()}</p>
+		</section>
+
+		<div class="divider my-6" aria-hidden="true"></div>
+
+		<!-- Why use us -->
+		<section class="space-y-3">
+			<h3 class="section-narrow">{m.home_why_title()}</h3>
+			<p class="section-narrow">{m.home_why_intro()}</p>
+			<p class="section-narrow">{m.home_why_more()}</p>
+			<div class="grid gap-3 sm:grid-cols-2 mt-4">
+				<div class="card bg-base-200/70 border border-base-300 shadow-sm">
+					<div class="card-body p-4">
+						<span class="badge badge-primary badge-sm mb-1 w-fit">Free</span>
+						<p>{m.home_why_free()}</p>
+					</div>
+				</div>
+				<div class="card bg-base-200/70 border border-base-300 shadow-sm">
+					<div class="card-body p-4">
+						<span class="badge badge-primary badge-sm mb-1 w-fit">Private</span>
+						<p>{m.home_why_private()}</p>
+					</div>
+				</div>
+				<div class="card bg-base-200/70 border border-base-300 shadow-sm">
+					<div class="card-body p-4">
+						<span class="badge badge-primary badge-sm mb-1 w-fit">Simple</span>
+						<p>{m.home_why_simple()}</p>
+					</div>
+				</div>
+				<div class="card bg-primary/10 border border-primary/20 shadow-sm">
+					<div class="card-body p-4">
+						<span class="badge badge-primary badge-sm mb-1 w-fit">Reader</span>
+						<p>{m.home_why_reader()}</p>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<div class="divider my-6" aria-hidden="true"></div>
+
+		<!-- Features grid -->
+		<section class="space-y-3">
+			<h3 class="section-narrow">{m.home_features_title()}</h3>
+			<div class="grid gap-3 sm:grid-cols-2">
+				<div class="card bg-base-100 border border-base-300 shadow-sm hover:shadow transition-shadow">
+					<div class="card-body p-4">
+						<h4 class="text-primary">{m.home_feature_upload_title()}</h4>
+						<p>{m.home_feature_upload_body()}</p>
+					</div>
+				</div>
+				<div class="card bg-base-100 border border-base-300 shadow-sm hover:shadow transition-shadow">
+					<div class="card-body p-4">
+						<h4 class="text-primary">{m.home_feature_reader_title()}</h4>
+						<p>{m.home_feature_reader_body()}</p>
+					</div>
+				</div>
+				<div class="card bg-base-100 border border-base-300 shadow-sm hover:shadow transition-shadow">
+					<div class="card-body p-4">
+						<h4 class="text-primary">{m.home_feature_custom_title()}</h4>
+						<p>{m.home_feature_custom_body()}</p>
+					</div>
+				</div>
+				<div class="card bg-base-100 border border-base-300 shadow-sm hover:shadow transition-shadow">
+					<div class="card-body p-4">
+						<h4 class="text-primary">{m.home_feature_lang_title()}</h4>
+						<p>{m.home_feature_lang_body()}</p>
+					</div>
+				</div>
+				<div class="card bg-base-100 border border-base-300 shadow-sm hover:shadow transition-shadow sm:col-span-2">
+					<div class="card-body p-4">
+						<h4 class="text-primary">{m.home_feature_device_title()}</h4>
+						<p>{m.home_feature_device_body()}</p>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<div class="divider my-6" aria-hidden="true"></div>
+
+		<!-- Benefits -->
+		<section class="space-y-3">
+			<h3 class="section-narrow">{m.home_benefits_title()}</h3>
+			<ul class="space-y-2 section-narrow">
+				<li class="flex gap-2">
+					<span class="text-primary shrink-0 mt-0.5" aria-hidden="true">✓</span>
+					<p>{m.home_benefit_1()}</p>
+				</li>
+				<li class="flex gap-2">
+					<span class="text-primary shrink-0 mt-0.5" aria-hidden="true">✓</span>
+					<p>{m.home_benefit_2()}</p>
+				</li>
+				<li class="flex gap-2">
+					<span class="text-primary shrink-0 mt-0.5" aria-hidden="true">✓</span>
+					<p>{m.home_benefit_3()}</p>
+				</li>
+				<li class="flex gap-2">
+					<span class="text-primary shrink-0 mt-0.5" aria-hidden="true">✓</span>
+					<p>{m.home_benefit_4()}</p>
+				</li>
+				<li class="flex gap-2">
+					<span class="text-primary shrink-0 mt-0.5" aria-hidden="true">✓</span>
+					<p>{m.home_benefit_5()}</p>
+				</li>
+				<li class="flex gap-2">
+					<span class="text-primary shrink-0 mt-0.5" aria-hidden="true">✓</span>
+					<p>{m.home_benefit_6()}</p>
+				</li>
 			</ul>
 		</section>
-		<section>
-			<h3 class="text-lg font-semibold mb-3">{m.home_seo_app_title()}</h3>
-			<p class="text-sm md:text-base leading-relaxed">{m.home_seo_app_body()}</p>
+
+		<div class="divider my-6" aria-hidden="true"></div>
+
+		<!-- Who it's for -->
+		<section class="space-y-2 section-narrow">
+			<h3>{m.home_who_title()}</h3>
+			<p>{m.home_who_body()}</p>
+		</section>
+
+		<div class="divider my-6" aria-hidden="true"></div>
+
+		<!-- Reader experience -->
+		<section class="space-y-2 section-narrow">
+			<h3>{m.home_reader_title()}</h3>
+			<p>{m.home_reader_body()}</p>
+			<p>{m.home_reader_2()}</p>
+		</section>
+
+		<div class="divider my-6" aria-hidden="true"></div>
+
+		<!-- Quick tips -->
+		<section class="space-y-2 section-narrow">
+			<h3>{m.home_tips_title()}</h3>
+			<ul class="space-y-1.5 list-disc list-inside">
+				<li>{m.home_tips_1()}</li>
+				<li>{m.home_tips_2()}</li>
+				<li>{m.home_tips_3()}</li>
+			</ul>
+		</section>
+
+		<div class="divider my-6" aria-hidden="true"></div>
+
+		<!-- About the app -->
+		<section class="space-y-2 section-narrow">
+			<h3>{m.home_seo_app_title()}</h3>
+			<p>{m.home_seo_app_body()}</p>
+		</section>
+
+		<!-- CTA -->
+		<section class="bg-base-200/80 border border-base-300 rounded-xl py-5 px-5 text-center">
+			<h3 class="mb-2">{m.home_cta_title()}</h3>
+			<p class="text-base-content/80 section-narrow mx-auto">{m.home_cta_body()}</p>
 		</section>
 	</article>
 </main>

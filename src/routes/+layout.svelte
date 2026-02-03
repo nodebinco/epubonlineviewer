@@ -2,30 +2,94 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
-	import { locales, localizeHref, type Locale } from '$lib/paraglide/runtime';
+	import { afterNavigate, goto } from '$app/navigation';
+	import {
+		locales,
+		localizeHref,
+		type Locale,
+		overwriteGetLocale,
+		extractLocaleFromUrl,
+		extractLocaleFromCookie,
+		baseLocale,
+		setLocale,
+	} from '$lib/paraglide/runtime';
 	import { m } from '$lib/paraglide/messages';
 	import { initTheme, themeStore, setTheme } from '$lib/theme-store';
-	import favicon from '$lib/assets/favicon.svg';
 	import logo from '$lib/assets/logo.svg';
 	import './layout.css';
+
+	// PWA: manifest link and service worker registration (virtual modules from @vite-pwa/sveltekit)
+	import { pwaInfo } from 'virtual:pwa-info';
+	const webManifestLink = $derived(pwaInfo?.webManifest?.linkTag ?? '');
+
+	// Make getLocale() read from URL first so m.*() shows the correct language when path is /es, etc.
+	if (browser && typeof window !== 'undefined') {
+		overwriteGetLocale((): Locale => {
+			const fromUrl = extractLocaleFromUrl(window.location.href);
+			if (fromUrl) return fromUrl as Locale;
+			const fromCookie = extractLocaleFromCookie();
+			if (fromCookie) return fromCookie as Locale;
+			return baseLocale as Locale;
+		});
+	}
 
 	let { children } = $props();
 	let navOpen = $state(false);
 
-	// Use the locale from the server-injected <html lang="..."> so SSR and first client paint match (avoids hydration_mismatch).
+	// Use actual browser pathname so locale updates when language switcher navigates (page.url can lag after reroute).
+	let pathnameForLocale = $state(browser ? window.location.pathname : page.url.pathname);
+	if (browser) {
+		afterNavigate(() => {
+			pathnameForLocale = window.location.pathname;
+		});
+	}
+
+	// Derive locale from pathname: /es/foo → es; /foo → from <html lang> or baseLocale.
 	const displayLocale = $derived(
 		browser && typeof document !== 'undefined'
-			? ((document.documentElement.getAttribute('lang') as Locale) ?? 'en')
-			: undefined
+			? (() => {
+					const pathname = pathnameForLocale;
+					const segments = pathname.split('/').filter(Boolean);
+					if (segments.length > 0 && locales.includes(segments[0] as (typeof locales)[number])) {
+						return segments[0] as Locale;
+					}
+					return (document.documentElement.getAttribute('lang') as Locale) ?? baseLocale;
+				})()
+			: (undefined as Locale | undefined)
 	);
 
 	onMount(() => {
 		initTheme();
+		if (browser) pathnameForLocale = window.location.pathname;
+		// Register PWA service worker (enables Add to Home Screen / install prompt)
+		if (browser && pwaInfo) {
+			import('virtual:pwa-register').then(({ registerSW }) => {
+				registerSW({ immediate: true });
+			});
+		}
 	});
+
+	// Sync Paraglide locale and <html lang> when URL pathname changes (e.g. user clicked language switcher).
+	$effect(() => {
+		const locale = displayLocale;
+		if (browser && typeof document !== 'undefined' && locale) {
+			setLocale(locale, { reload: false });
+			const current = document.documentElement.getAttribute('lang');
+			if (current !== locale) {
+				document.documentElement.setAttribute('lang', locale);
+			}
+		}
+	});
+
+	// Force children to re-render when locale changes so m.*() messages update.
+	const localeKey = $derived(displayLocale ?? page.url.pathname);
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+	{#if webManifestLink}
+		{@html webManifestLink}
+	{/if}
 </svelte:head>
 
 <!-- Same max-w and padding as reader; theme colors follow reader (light/dark). -->
@@ -42,20 +106,25 @@
 						</svg>
 					</summary>
 					<ul class="menu dropdown-content bg-base-100 rounded-box z-50 mt-2 w-56 p-2 shadow">
-						<li><a href="/getting-started">{m.nav_getting_started({ locale: displayLocale })}</a></li>
-						<li><a href="/what-is-epub">{m.nav_what_is_epub({ locale: displayLocale })}</a></li>
-						<li><a href="/">{m.nav_open_epub_reader({ locale: displayLocale })}</a></li>
+						<li><a href={localizeHref('/getting-started', { locale: displayLocale ?? baseLocale })}>{m.nav_getting_started({ locale: displayLocale })}</a></li>
+						<li><a href={localizeHref('/what-is-epub', { locale: displayLocale ?? baseLocale })}>{m.nav_what_is_epub({ locale: displayLocale })}</a></li>
+						<li><a href={localizeHref('/tools', { locale: displayLocale ?? baseLocale })}>{m.nav_tools({ locale: displayLocale })}</a></li>
+						<li><a href={localizeHref('/', { locale: displayLocale ?? baseLocale })}>{m.nav_open_epub_reader({ locale: displayLocale })}</a></li>
 					</ul>
 				</details>
-				<a href="/" class="flex items-center gap-2 px-2 hover:opacity-90">
-					<img src={logo} alt="" class="h-8 w-8" width="32" height="32" />
-					<span class="font-bold text-lg hidden sm:inline">EPUB Online Viewer</span>
+				<a href={localizeHref('/', { locale: displayLocale ?? baseLocale })} class="brand-link flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-base-300/50 transition-colors">
+					<img src={logo} alt="" class="h-8 w-8 shrink-0" width="32" height="32" />
+					<span class="brand-text hidden sm:inline">
+						<span class="brand-name">EPUB</span>
+						<span class="brand-tagline">Online Viewer</span>
+					</span>
 				</a>
 			</div>
 			<div class="navbar-center hidden lg:flex">
 				<ul class="menu menu-horizontal gap-1 px-1">
-					<li><a href="/getting-started">{m.nav_getting_started({ locale: displayLocale })}</a></li>
-					<li><a href="/what-is-epub">{m.nav_what_is_epub({ locale: displayLocale })}</a></li>
+					<li><a href={localizeHref('/getting-started', { locale: displayLocale ?? baseLocale })}>{m.nav_getting_started({ locale: displayLocale })}</a></li>
+					<li><a href={localizeHref('/what-is-epub', { locale: displayLocale ?? baseLocale })}>{m.nav_what_is_epub({ locale: displayLocale })}</a></li>
+					<li><a href={localizeHref('/tools', { locale: displayLocale ?? baseLocale })}>{m.nav_tools({ locale: displayLocale })}</a></li>
 				</ul>
 			</div>
 			<div class="navbar-end gap-1">
@@ -73,42 +142,63 @@
 					{/if}
 				</button>
 				<div class="dropdown dropdown-end">
-					<label tabindex="0" class="btn btn-ghost btn-sm btn-square" title="Language">
+					<button type="button" tabindex="0" class="btn btn-ghost btn-sm btn-square" title="Language" aria-label="Language" aria-haspopup="true">
 						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
 						</svg>
-					</label>
-					<ul tabindex="0" class="menu dropdown-content bg-base-100 rounded-box z-50 mt-2 w-32 p-2 shadow">
+					</button>
+					<ul tabindex="0" role="menu" class="menu dropdown-content bg-base-100 rounded-box z-50 mt-2 w-32 p-2 shadow">
 						{#each locales as locale}
 							<li>
-								<a href={localizeHref(page.url.pathname, { locale })}>{locale}</a>
+								<a
+									href={localizeHref(pathnameForLocale, { locale })}
+									onclick={(e) => {
+										if (locale === displayLocale) return;
+										e.preventDefault();
+										const targetHref = localizeHref(pathnameForLocale, { locale });
+										setLocale(locale, { reload: false });
+										// Switching to base locale (en): goto() may be skipped because reroute
+										// maps /es/... and /... to the same route. Use full navigation so URL
+										// and content both update.
+										if (locale === baseLocale) {
+											window.location.href = targetHref;
+										} else {
+											goto(targetHref, { replaceState: false });
+										}
+									}}
+								>{locale}</a>
 							</li>
 						{/each}
 					</ul>
 				</div>
-				<a href="/" class="btn btn-primary btn-sm md:btn-md">{m.nav_open_epub_reader({ locale: displayLocale })}</a>
+				<a href={localizeHref('/', { locale: displayLocale ?? baseLocale })} class="btn btn-primary btn-sm md:btn-md">{m.nav_open_epub_reader({ locale: displayLocale })}</a>
 			</div>
 			</div>
 		</header>
 		<!-- Main: same max-w + padding as reader; no aside bar on the right -->
 		<div class="flex-1 flex min-h-0 w-full max-w-[1920px] mx-auto px-2 md:px-3 overflow-hidden flex-col">
 			<main class="flex-1 min-w-0 min-h-0 flex flex-col pt-14 md:pt-16 overflow-auto">
-				{@render children()}
+				{#key localeKey}
+					{@render children()}
+				{/key}
 			</main>
 		</div>
 		<footer class="footer footer-center bg-base-200 border-t border-base-300 p-6 text-base-content/80 text-sm">
 			<div class="flex flex-wrap justify-center gap-4 md:gap-6">
-				<a href="/about-us" class="link link-hover">{m.footer_about({ locale: displayLocale })}</a>
-				<a href="/privacy-policy" class="link link-hover">{m.footer_privacy({ locale: displayLocale })}</a>
-				<a href="/terms-of-use" class="link link-hover">{m.footer_terms({ locale: displayLocale })}</a>
-				<a href="/contact-us" class="link link-hover">{m.footer_contact({ locale: displayLocale })}</a>
+				<a href={localizeHref('/tools', { locale: displayLocale ?? baseLocale })} class="link link-hover">{m.nav_tools({ locale: displayLocale })}</a>
+				<a href={localizeHref('/about-us', { locale: displayLocale ?? baseLocale })} class="link link-hover">{m.footer_about({ locale: displayLocale })}</a>
+				<a href={localizeHref('/privacy-policy', { locale: displayLocale ?? baseLocale })} class="link link-hover">{m.footer_privacy({ locale: displayLocale })}</a>
+				<a href={localizeHref('/terms-of-use', { locale: displayLocale ?? baseLocale })} class="link link-hover">{m.footer_terms({ locale: displayLocale })}</a>
+				<a href={localizeHref('/contact-us', { locale: displayLocale ?? baseLocale })} class="link link-hover">{m.footer_contact({ locale: displayLocale })}</a>
 			</div>
 		</footer>
 	{:else}
 		<!-- Reader: exactly viewport height, no page scroll; TOC and content scroll independently inside -->
 		<div class="h-screen max-h-dvh w-full max-w-[1920px] mx-auto flex flex-col overflow-hidden">
 			<main class="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
-				{@render children()}
+				{#key localeKey}
+					{@render children()}
+				{/key}
 			</main>
 		</div>
 	{/if}
