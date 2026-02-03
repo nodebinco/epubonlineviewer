@@ -15,26 +15,26 @@
 			name: () => m.tools_tool_1_name(),
 			description: () => m.tools_tool_1_description(),
 			url: 'https://onlinemarkdown.com',
-			internal: false,
+			internal: false
 		},
 		{
 			name: () => m.tools_tool_2_name(),
 			description: () => m.tools_tool_2_description(),
 			url: 'https://notepadplus.org',
-			internal: false,
+			internal: false
 		},
 		{
 			name: () => m.tools_tool_3_name(),
 			description: () => m.tools_tool_3_description(),
 			url: 'https://timeutcnow.com',
-			internal: false,
+			internal: false
 		},
 		{
 			name: () => m.tools_tool_4_name(),
 			description: () => m.tools_tool_4_description(),
 			url: 'https://onlinemarkdown.com/markdown-to-pdf',
-			internal: false,
-		},
+			internal: false
+		}
 	];
 </script>
 
@@ -44,7 +44,7 @@
 	<meta name="keywords" content={m.seo_tools_keywords()} />
 </svelte:head>
 
-<main class="page-content px-4 py-8 md:py-10 text-base-content/90">
+<main class="page-content text-base-content/90 px-4 py-8 md:py-10">
 	<h1>{m.tools_title()}</h1>
 	<p>{m.tools_intro()}</p>
 	<p>{m.tools_intro_2()}</p>
@@ -63,18 +63,18 @@
 
 	<section class="section-block">
 		<h2>{m.tools_list_title()}</h2>
-		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mt-4">
+		<div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each tools as tool}
 				<a
 					href={tool.internal ? localizeHref(tool.url, { locale: displayLocale }) : tool.url}
-					class="card card-compact bg-base-100 border border-base-300 shadow-sm hover:shadow-md hover:border-primary/40 transition-all no-underline text-left"
+					class="card card-compact bg-base-100 border-base-300 hover:border-primary/40 border text-left no-underline shadow-sm transition-all hover:shadow-md"
 					target={tool.internal ? undefined : '_blank'}
 					rel={tool.internal ? undefined : 'noopener noreferrer'}
 				>
 					<div class="card-body p-4">
 						<h3 class="card-title text-primary text-base">{tool.name()}</h3>
-						<p class="text-sm text-base-content/80">{tool.description()}</p>
-						<span class="text-xs text-primary mt-2">
+						<p class="text-base-content/80 text-sm">{tool.description()}</p>
+						<span class="text-primary mt-2 text-xs">
 							→ {tool.internal ? tool.url : tool.url.replace(/^https?:\/\//, '')}
 						</span>
 					</div>

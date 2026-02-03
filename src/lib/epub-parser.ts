@@ -154,7 +154,9 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 		return URL.createObjectURL(blob);
 	}
 
-	const resolvedCoverHref = coverHref ? (await resolvePath(coverHref)).replace(/\\/g, '/') : undefined;
+	const resolvedCoverHref = coverHref
+		? (await resolvePath(coverHref)).replace(/\\/g, '/')
+		: undefined;
 
 	async function getCoverDataUrl(): Promise<string | null> {
 		// Try OPF-declared cover first
@@ -241,7 +243,7 @@ export async function parseEpub(blob: Blob): Promise<EpubParseResult> {
 		getChapterHtml,
 		getChapterBlobUrl,
 		getCoverDataUrl,
-		getTocLabels,
+		getTocLabels
 	};
 }
 
@@ -254,7 +256,7 @@ function parseOpfMetadata(opf: string): EpubMetadata {
 		title: titleMatch ? titleMatch[1].trim() : 'Unknown',
 		creator: creatorMatch ? creatorMatch[1].trim() : undefined,
 		language: langMatch ? langMatch[1].trim() : undefined,
-		identifier: idMatch ? idMatch[1].trim() : undefined,
+		identifier: idMatch ? idMatch[1].trim() : undefined
 	};
 }
 
@@ -327,4 +329,3 @@ function parseOpfCover(opf: string, manifest: Map<string, ManifestItem>): string
 	}
 	return undefined;
 }
-

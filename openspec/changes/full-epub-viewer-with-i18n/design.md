@@ -51,7 +51,7 @@ The app is a minimal SvelteKit scaffold (single landing route, Paraglide with en
 - **Choice:** Add exactly 50 locales to `project.inlang/settings.json`; add `messages/{locale}.json` per locale. Use the following list (ISO 639-1 / BCP 47; base locale first, then alphabetical by code):
 - **Full list (50):** `en`, `es`, `fr`, `de`, `it`, `pt`, `pt-BR`, `nl`, `pl`, `ru`, `uk`, `ja`, `zh-CN`, `zh-TW`, `ko`, `ar`, `hi`, `bn`, `id`, `ms`, `th`, `vi`, `tr`, `fa`, `ur`, `sw`, `am`, `ha`, `yo`, `ig`, `ro`, `hu`, `cs`, `el`, `he`, `sv`, `da`, `no`, `fi`, `sk`, `bg`, `sr`, `hr`, `ca`, `eu`, `gl`, `sl`, `lt`, `lv`, `et`.
 - **Rationale:** Covers major languages by population and web use; Paraglide/Inlang support these tags; fallback to `en` for missing keys.
-- **Alternatives:** Fewer locales; regional variants only (e.g. more zh-*, ar-*); separate i18n system (unnecessary given Paraglide).
+- **Alternatives:** Fewer locales; regional variants only (e.g. more zh-_, ar-_); separate i18n system (unnecessary given Paraglide).
 
 **5. Reader position persistence**
 
@@ -64,7 +64,6 @@ The app is a minimal SvelteKit scaffold (single landing route, Paraglide with en
 - **Choice:** Use Fullscreen API (e.g. `element.requestFullscreen()`) on the reader container; toggle via UI button and optional keyboard shortcut; exit on Esc.
 - **Rationale:** Standard, no extra dependency; works in modern browsers.
 - **Alternatives:** CSS “maximize” only (not true full-screen); third-party library (unnecessary).
-
 
 **7. SEO: title, snippet, keywords per page**
 

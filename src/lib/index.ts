@@ -9,14 +9,14 @@ export {
 	deleteBook,
 	updateBookMetadata,
 	type EpubBookMetadata,
-	type EpubBookRecord,
+	type EpubBookRecord
 } from './epub-store.js';
 
 export {
 	parseEpub,
 	type EpubMetadata,
 	type EpubSpineItem,
-	type EpubParseResult,
+	type EpubParseResult
 } from './epub-parser.js';
 
 export { themeStore, setTheme, initTheme, type Theme } from './theme-store.js';

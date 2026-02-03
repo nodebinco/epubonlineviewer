@@ -79,12 +79,12 @@ Same rule: kebab-case routes, all copy via Paraglide.
 
 ## Quick reference
 
-| Item            | Convention / location                    |
-|-----------------|-------------------------------------------|
-| Routes          | `src/routes/<kebab-case>/+page.svelte`   |
-| i18n            | Paraglide; `messages/{locale}.json`      |
-| EPUB storage    | IndexedDB, via `src/lib/`                |
-| UI              | DaisyUI + Tailwind                       |
-| OPSX changes    | `openspec/changes/<name>/`               |
+| Item         | Convention / location                  |
+| ------------ | -------------------------------------- |
+| Routes       | `src/routes/<kebab-case>/+page.svelte` |
+| i18n         | Paraglide; `messages/{locale}.json`    |
+| EPUB storage | IndexedDB, via `src/lib/`              |
+| UI           | DaisyUI + Tailwind                     |
+| OPSX changes | `openspec/changes/<name>/`             |
 
 Use this document to keep naming, structure, and behavior consistent when generating or modifying code.

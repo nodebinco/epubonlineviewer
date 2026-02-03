@@ -8,7 +8,7 @@
 	<meta name="keywords" content={m.seo_privacy_keywords()} />
 </svelte:head>
 
-<main class="page-content px-4 py-8 md:py-10 text-base-content/90">
+<main class="page-content text-base-content/90 px-4 py-8 md:py-10">
 	<h1>{m.nav_privacy()}</h1>
 	<p>{m.privacy_intro()}</p>
 

@@ -8,7 +8,7 @@
 	<meta name="keywords" content={m.seo_about_keywords()} />
 </svelte:head>
 
-<main class="page-content px-4 py-8 md:py-10 text-base-content/90">
+<main class="page-content text-base-content/90 px-4 py-8 md:py-10">
 	<h1>{m.nav_about()}</h1>
 	<p>{m.about_intro()}</p>
 
@@ -35,22 +35,31 @@
 	<section class="promote-section">
 		<h2>{m.promote_section_title()}</h2>
 		<div class="promote-cards">
-			<a href="/" class="promote-card card card-compact bg-base-100 border border-base-300 shadow-sm hover:shadow-md hover:border-primary/40 transition-all no-underline">
+			<a
+				href="/"
+				class="promote-card card card-compact bg-base-100 border-base-300 hover:border-primary/40 border no-underline shadow-sm transition-all hover:shadow-md"
+			>
 				<div class="card-body p-4">
 					<h3 class="card-title text-primary text-base">{m.promote_card_1_title()}</h3>
-					<p class="text-sm text-base-content/80">{m.promote_card_1_body()}</p>
+					<p class="text-base-content/80 text-sm">{m.promote_card_1_body()}</p>
 				</div>
 			</a>
-			<a href="/" class="promote-card card card-compact bg-base-100 border border-base-300 shadow-sm hover:shadow-md hover:border-primary/40 transition-all no-underline">
+			<a
+				href="/"
+				class="promote-card card card-compact bg-base-100 border-base-300 hover:border-primary/40 border no-underline shadow-sm transition-all hover:shadow-md"
+			>
 				<div class="card-body p-4">
 					<h3 class="card-title text-primary text-base">{m.promote_card_2_title()}</h3>
-					<p class="text-sm text-base-content/80">{m.promote_card_2_body()}</p>
+					<p class="text-base-content/80 text-sm">{m.promote_card_2_body()}</p>
 				</div>
 			</a>
-			<a href="/" class="promote-card card card-compact bg-base-100 border border-base-300 shadow-sm hover:shadow-md hover:border-primary/40 transition-all no-underline">
+			<a
+				href="/"
+				class="promote-card card card-compact bg-base-100 border-base-300 hover:border-primary/40 border no-underline shadow-sm transition-all hover:shadow-md"
+			>
 				<div class="card-body p-4">
 					<h3 class="card-title text-primary text-base">{m.promote_card_3_title()}</h3>
-					<p class="text-sm text-base-content/80">{m.promote_card_3_body()}</p>
+					<p class="text-base-content/80 text-sm">{m.promote_card_3_body()}</p>
 				</div>
 			</a>
 		</div>

@@ -58,7 +58,7 @@ function getDB(): Promise<IDBPDatabase<EpubDBSchema>> {
 				if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
 					db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
 				}
-			},
+			}
 		});
 	}
 	return dbPromise;
@@ -113,7 +113,9 @@ export async function getBook(id: string): Promise<EpubBookRecord | undefined> {
  * Avoids "file could not be read... permission problems after reference was acquired" when
  * the IndexedDB transaction has closed and the blob becomes unreadable.
  */
-export async function getBookArrayBuffer(id: string): Promise<{ metadata: EpubBookMetadata; arrayBuffer: ArrayBuffer } | undefined> {
+export async function getBookArrayBuffer(
+	id: string
+): Promise<{ metadata: EpubBookMetadata; arrayBuffer: ArrayBuffer } | undefined> {
 	const db = await getDB();
 	const record = await db.get(STORE_BOOKS, id);
 	if (!record) return undefined;
@@ -142,6 +144,6 @@ export async function updateBookMetadata(
 	if (!existing) return;
 	await saveBook({
 		...existing,
-		metadata: { ...existing.metadata, ...metadata },
+		metadata: { ...existing.metadata, ...metadata }
 	});
 }

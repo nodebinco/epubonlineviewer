@@ -37,7 +37,7 @@
 
 - [ ] 6.1 Add all 50 locales to `project.inlang/settings.json` per design list: en, es, fr, de, it, pt, pt-BR, nl, pl, ru, uk, ja, zh-CN, zh-TW, ko, ar, hi, bn, id, ms, th, vi, tr, fa, ur, sw, am, ha, yo, ig, ro, hu, cs, el, he, sv, da, no, fi, sk, bg, sr, hr, ca, eu, gl, sl, lt, lv, et
 - [ ] 6.2 Create `messages/{locale}.json` for each of the 50 locales; ensure base locale (en) has all keys used across landing, reader, supporting, legal pages and SEO meta
-- [ ] 6.3 Replace any hardcoded user-facing strings in `src/routes/` and `src/lib/` with Paraglide message calls; ensure reader, landing, and all pages use m.* (or equivalent) for labels, titles, buttons, errors
+- [ ] 6.3 Replace any hardcoded user-facing strings in `src/routes/` and `src/lib/` with Paraglide message calls; ensure reader, landing, and all pages use m.\* (or equivalent) for labels, titles, buttons, errors
 - [ ] 6.4 Translate or fill message files for non-en locales (machine or community); fallback to en for missing keys
 
 ## 7. SEO and share snippets (all pages)

@@ -16,7 +16,7 @@ The project lacked clear, audience-appropriate documentation. Users had no singl
 
 ### Modified Capabilities
 
-- *(none — no existing specs in openspec/specs/.)*
+- _(none — no existing specs in openspec/specs/.)_
 
 ## Impact
 

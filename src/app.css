@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@plugin "daisyui";
+@import 'tailwindcss';
+@plugin 'daisyui';
 
 /* Navbar brand: EPUB + Online Viewer */
 .brand-text {
@@ -136,7 +136,8 @@
 .page-content p {
 	margin-bottom: 1rem;
 }
-.page-content ul, .page-content ol {
+.page-content ul,
+.page-content ol {
 	margin-bottom: 1rem;
 	padding-left: 1.5rem;
 }
@@ -174,11 +175,13 @@
 	border: 1px solid var(--color-base-300);
 	border-radius: 0.5rem;
 	padding: 1rem;
-	box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-	transition: box-shadow 0.2s, border-color 0.2s;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+	transition:
+		box-shadow 0.2s,
+		border-color 0.2s;
 }
 .page-content .promote-card:hover {
-	box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 	border-color: var(--color-primary);
 }
 .page-content .promote-card h3 {

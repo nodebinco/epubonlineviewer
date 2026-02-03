@@ -52,5 +52,5 @@ export const localeDisplayName: Record<string, string> = {
 	ml: 'മലയാളം',
 	pa: 'ਪੰਜਾਬੀ',
 	am: 'አማርኛ',
-	fil: 'Filipino',
+	fil: 'Filipino'
 };

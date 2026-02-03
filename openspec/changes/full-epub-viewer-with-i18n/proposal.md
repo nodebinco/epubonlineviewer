@@ -26,7 +26,7 @@ The app is currently a minimal SvelteKit scaffold. Users cannot yet upload EPUBs
 
 ### Modified Capabilities
 
-- *(none — no existing specs in openspec/specs/.)*
+- _(none — no existing specs in openspec/specs/.)_
 
 ## Impact
 
