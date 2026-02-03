@@ -14,6 +14,7 @@
 		setLocale,
 	} from '$lib/paraglide/runtime';
 	import { m } from '$lib/paraglide/messages';
+	import { localeDisplayName } from '$lib/locale-display-names';
 	import { initTheme, themeStore, setTheme } from '$lib/theme-store';
 	import logo from '$lib/assets/logo.svg';
 	import './layout.css';
@@ -147,29 +148,28 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
 						</svg>
 					</button>
-					<ul tabindex="0" role="menu" class="menu dropdown-content bg-base-100 rounded-box z-50 mt-2 w-32 p-2 shadow">
-						{#each locales as locale}
-							<li>
+					<div tabindex="0" role="menu" class="dropdown-content bg-base-100 rounded-box z-50 mt-2 p-2 shadow w-auto min-w-[280px] max-h-[70vh] overflow-y-auto">
+						<div class="grid grid-cols-2 sm:grid-cols-3 gap-1">
+							{#each locales as locale}
 								<a
 									href={localizeHref(pathnameForLocale, { locale })}
+									role="menuitem"
+									class="rounded-lg px-3 py-2 text-sm hover:bg-base-200 focus:bg-base-200 focus:outline-none {locale === displayLocale ? 'bg-primary/10 text-primary font-medium' : 'text-base-content'}"
 									onclick={(e) => {
 										if (locale === displayLocale) return;
 										e.preventDefault();
 										const targetHref = localizeHref(pathnameForLocale, { locale });
 										setLocale(locale, { reload: false });
-										// Switching to base locale (en): goto() may be skipped because reroute
-										// maps /es/... and /... to the same route. Use full navigation so URL
-										// and content both update.
 										if (locale === baseLocale) {
 											window.location.href = targetHref;
 										} else {
 											goto(targetHref, { replaceState: false });
 										}
 									}}
-								>{locale}</a>
-							</li>
-						{/each}
-					</ul>
+								>{localeDisplayName[locale] ?? locale}</a>
+							{/each}
+						</div>
+					</div>
 				</div>
 				<a href={localizeHref('/', { locale: displayLocale ?? baseLocale })} class="btn btn-primary btn-sm md:btn-md">{m.nav_open_epub_reader({ locale: displayLocale })}</a>
 			</div>
