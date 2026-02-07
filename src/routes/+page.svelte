@@ -168,7 +168,6 @@
 	<meta name="keywords" content={m.seo_landing_keywords()} />
 </svelte:head>
 
-
 <main class="mx-auto min-h-0 w-full max-w-4xl flex-1 overflow-auto px-4 py-6 md:py-8">
 	<!-- Hero -->
 	<section class="mb-8 text-center md:mb-10">
